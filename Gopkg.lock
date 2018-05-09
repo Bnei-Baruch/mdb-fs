@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  name = "github.com/cavaliercoder/grab"
+  packages = ["."]
+  revision = "3b6830dae49bc01e25b4676dae3a2a06c1b1485e"
+  version = "v2.0.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/lib/pq"
   packages = [
@@ -25,6 +31,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "acc0f4cf5f64ae7cf798c97cf169fc159fc8b1b34fadd25b7798f0aee8d7313b"
+  inputs-digest = "a843e9c10535d0940520077a47f65bc768bbc811d4bc82ddf45c978159aaee31"
   solver-name = "gps-cdcl"
   solver-version = 1

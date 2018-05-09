@@ -18,9 +18,8 @@ func main() {
 	syncer := new(index.Syncer)
 	go syncer.DoSync(cfg)
 
-	time.Sleep(20 * time.Second)
-
+	// TODO: register shutdown hook
+	time.Sleep(24 * time.Hour)
 	syncer.Close()
-	time.Sleep(5 * time.Second)
 	log.Println("mdb-fs end")
 }

@@ -24,12 +24,13 @@ type FileRecord struct {
 }
 
 type Syncer struct {
-	cfg     *config.Config
-	quit    chan bool
-	queue   fetch.WorkQueue
-	files   []*FileRecord
-	pos     int
-	reloads int
+	cfg         *config.Config
+	quit        chan bool
+	queue       *fetch.TaskQueue
+	taskFactory *fetch.TaskFactory
+	files       []*FileRecord
+	pos         int
+	reloads     int
 }
 
 func (s *Syncer) DoSync(cfg *config.Config) {
@@ -38,9 +39,9 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 	s.quit = make(chan bool)
 	ticker := time.NewTicker(cfg.SyncUpdateInterval)
 
-	// initialize fetchers queue
-	s.queue = new(fetch.TaskQueue)
-	s.queue.Init(cfg)
+	// initialize fetchers
+	s.taskFactory = fetch.NewTaskFactory(cfg)
+	s.queue = fetch.NewTaskQueue(cfg)
 
 	// first time reload
 	if err := s.reload(); err != nil {
@@ -72,7 +73,7 @@ func (s *Syncer) Close() {
 
 func (s *Syncer) enqueueNext() {
 	if s.pos < len(s.files) {
-		task := fetch.FetchTask{Sha1: s.files[s.pos].Sha1}
+		task := s.taskFactory.Make(s.files[s.pos].Sha1)
 		if err := s.queue.Enqueue(task, time.Second); err == nil {
 			s.pos++
 		}
