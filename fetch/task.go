@@ -3,16 +3,15 @@ package fetch
 import (
 	"context"
 	"crypto"
+	"encoding/hex"
 	"fmt"
 	"log"
-	"path/filepath"
+	"net/http"
 
 	"github.com/cavaliercoder/grab"
 	"github.com/pkg/errors"
 
-	"encoding/hex"
 	"github.com/Bnei-Baruch/mdb-fs/config"
-	"net/http"
 )
 
 type Task interface {
@@ -21,6 +20,7 @@ type Task interface {
 
 type FetchTask struct {
 	Sha1    string
+	Dest    string
 	factory *TaskFactory
 }
 
@@ -29,11 +29,6 @@ func (t FetchTask) String() string {
 }
 
 func (t FetchTask) Do(ctx context.Context) error {
-	//time.Sleep(100 * time.Second)
-
-	// TODO: verify file not exist before download (maybe in syncer)
-	dst := filepath.Join(t.factory.cfg.RootDir, t.Sha1[0:1], t.Sha1[1:2], t.Sha1[2:3], t.Sha1)
-
 	// Find the first origin with the file and try to download.
 	// If download wasn't successful then go on to the next.
 	var url string
@@ -45,7 +40,7 @@ func (t FetchTask) Do(ctx context.Context) error {
 			continue
 		}
 
-		err = t.doGrab(ctx, dst, url)
+		err = t.doGrab(ctx, t.Dest, url)
 		if err != nil {
 			log.Printf("Download error: %s\n", err.Error())
 			continue
@@ -63,18 +58,24 @@ func (t FetchTask) doGrab(ctx context.Context, dst string, url string) error {
 	if err != nil {
 		return errors.Wrap(err, "grab.NewRequest")
 	}
+
+	// we want our own times
 	req.IgnoreRemoteTime = true
 
-	// Require HEAD request to origin which is not allowed at the moment.
+	// require HEAD request to origin which is not allowed at the moment
 	req.NoResume = true
 
+	// enable checksum validation
 	sha1sum, err := hex.DecodeString(t.Sha1)
 	req.SetChecksum(crypto.SHA1.New(), sha1sum, true)
+
+	// propagate context for cancellation
 	req = req.WithContext(ctx)
 
+	// actual http call
 	resp := t.factory.grabber.Do(req)
 
-	// blocking
+	// blocking wait for complete or error
 	if err := resp.Err(); err != nil {
 		if resp.HTTPResponse.StatusCode == http.StatusNotFound {
 			return errors.Errorf("%s 404 Not Found", url)
@@ -108,9 +109,10 @@ func NewTaskFactory(cfg *config.Config) *TaskFactory {
 	return f
 }
 
-func (f *TaskFactory) Make(sha1 string) FetchTask {
+func (f *TaskFactory) Make(sha1 string, dest string) FetchTask {
 	return FetchTask{
 		factory: f,
 		Sha1:    sha1,
+		Dest:    dest,
 	}
 }

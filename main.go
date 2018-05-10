@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/Bnei-Baruch/mdb-fs/config"
-	"github.com/Bnei-Baruch/mdb-fs/index"
+	"github.com/Bnei-Baruch/mdb-fs/core"
 )
 
 func main() {
@@ -15,7 +15,7 @@ func main() {
 
 	log.Printf("Config: %+v\n", cfg)
 
-	syncer := new(index.Syncer)
+	syncer := new(core.Syncer)
 	go syncer.DoSync(cfg)
 
 	// TODO: register shutdown hook

@@ -1,10 +1,10 @@
 package fetch
 
 import (
-	"net/http"
-	"io/ioutil"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 )
 
 func LogHttpResponse(resp *http.Response) string {

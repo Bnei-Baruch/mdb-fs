@@ -1,4 +1,4 @@
-package index
+package core
 
 import (
 	"bufio"
@@ -17,14 +17,9 @@ import (
 	"github.com/Bnei-Baruch/mdb-fs/fetch"
 )
 
-type FileRecord struct {
-	Sha1      string
-	MdbID     int64
-	LocalCopy bool
-}
-
 type Syncer struct {
 	cfg         *config.Config
+	fs          *Sha1FS
 	quit        chan bool
 	queue       *fetch.TaskQueue
 	taskFactory *fetch.TaskFactory
@@ -35,6 +30,8 @@ type Syncer struct {
 
 func (s *Syncer) DoSync(cfg *config.Config) {
 	s.cfg = cfg
+
+	s.fs = NewSha1FS(cfg.RootDir)
 
 	s.quit = make(chan bool)
 	ticker := time.NewTicker(cfg.SyncUpdateInterval)
@@ -50,15 +47,16 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 
 	// batch process until quit or refresh
 	for {
-		select {
-		case <-s.quit:
-			return
-		case <-ticker.C:
-			if err := s.reload(); err != nil {
-				log.Printf("[ERROR] Syncer.reload %s", err.Error())
+		if !s.enqueueNext() {
+			log.Printf("No more files to sync\n")
+			select {
+			case <-s.quit:
+				return
+			case <-ticker.C:
+				if err := s.reload(); err != nil {
+					log.Printf("[ERROR] Syncer.reload %s", err.Error())
+				}
 			}
-		default:
-			s.enqueueNext()
 		}
 	}
 }
@@ -71,13 +69,23 @@ func (s *Syncer) Close() {
 	s.queue.Close()
 }
 
-func (s *Syncer) enqueueNext() {
+func (s *Syncer) enqueueNext() bool {
 	if s.pos < len(s.files) {
-		task := s.taskFactory.Make(s.files[s.pos].Sha1)
+		sha1 := s.files[s.pos].Sha1
+
+		if s.fs.IsExistValid(sha1) {
+			log.Printf("%s exists and valid. skip\n", sha1)
+			s.pos++
+			return s.pos < len(s.files)
+		}
+
+		task := s.taskFactory.Make(sha1, s.fs.Path(sha1))
 		if err := s.queue.Enqueue(task, time.Second); err == nil {
 			s.pos++
 		}
 	}
+
+	return s.pos < len(s.files)
 }
 
 func (s *Syncer) reload() error {
@@ -153,7 +161,7 @@ func (s *Syncer) reloadMDB(idx map[string]*FileRecord) error {
 	}
 	defer db.Close()
 
-	rows, err := db.Query("select id, sha1 from files where sha1 is not null and published is true order by created_at desc limit 10")
+	rows, err := db.Query("select id, sha1 from files where sha1 is not null and published is true order by created_at desc limit 20")
 	if err != nil {
 		return errors.Wrap(err, "db.Query")
 	}
