@@ -31,10 +31,11 @@ type Syncer struct {
 func (s *Syncer) DoSync(cfg *config.Config) {
 	s.cfg = cfg
 
-	s.fs = NewSha1FS(cfg.RootDir)
-
 	s.quit = make(chan bool)
 	ticker := time.NewTicker(cfg.SyncUpdateInterval)
+
+	// initialize Sha1 FS
+	s.fs = NewSha1FS(cfg.RootDir)
 
 	// initialize fetchers
 	s.taskFactory = fetch.NewTaskFactory(cfg)
@@ -47,8 +48,21 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 
 	// batch process until quit or refresh
 	for {
-		if !s.enqueueNext() {
-			log.Printf("No more files to sync\n")
+		if s.enqueueNext() {
+			// we have more to enqueue so we use a non blocking select
+			// with default case to continue our loop
+			select {
+			case <-s.quit:
+				return
+			case <-ticker.C:
+				if err := s.reload(); err != nil {
+					log.Printf("[ERROR] Syncer.reload %s", err.Error())
+				}
+			default:
+				continue
+			}
+		} else {
+			// no more items to process, blocking wait for either quit or reload
 			select {
 			case <-s.quit:
 				return
@@ -62,7 +76,7 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 }
 
 func (s *Syncer) Close() {
-	log.Println("Syncer - signal the syncer quit channel")
+	log.Println("Syncer - signal quit channel")
 	s.quit <- true
 
 	log.Println("Syncer - close work queue")
@@ -74,7 +88,6 @@ func (s *Syncer) enqueueNext() bool {
 		sha1 := s.files[s.pos].Sha1
 
 		if s.fs.IsExistValid(sha1) {
-			log.Printf("%s exists and valid. skip\n", sha1)
 			s.pos++
 			return s.pos < len(s.files)
 		}
