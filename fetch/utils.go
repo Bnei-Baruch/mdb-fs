@@ -12,7 +12,7 @@ func LogHttpResponse(resp *http.Response) string {
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[ERROR] ioutil.ReadAll: %+v", err)
+		log.Printf("[ERROR] ioutil.ReadAll: %+v\n", err)
 	}
 
 	msg := fmt.Sprintf("Unexpected response [%d - %s] %s",

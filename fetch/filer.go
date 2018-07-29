@@ -22,13 +22,15 @@ type FileBackendResponse struct {
 }
 
 type FilerBackend struct {
-	Url    string
-	client *http.Client
+	Url       string
+	UserAgent string
+	client    *http.Client
 }
 
-func NewFilerBackend(url string) *FilerBackend {
+func NewFilerBackend(url string, ua string) *FilerBackend {
 	fb := new(FilerBackend)
 	fb.Url = url
+	fb.UserAgent = ua
 	fb.client = &http.Client{
 		Timeout: 5 * time.Second,
 	}
@@ -53,6 +55,7 @@ func (fb *FilerBackend) RegisterFile(ctx context.Context, sha1 string) (string, 
 		return "", errors.Wrap(err, "http.NewRequest")
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("User-Agent", fb.UserAgent)
 
 	req = req.WithContext(ctx)
 

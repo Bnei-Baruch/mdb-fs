@@ -98,13 +98,15 @@ func NewTaskFactory(cfg *config.Config) *TaskFactory {
 	f := new(TaskFactory)
 	f.cfg = cfg
 
+	ua := fmt.Sprintf("mdb-fs [%s]", cfg.SuitcaseID)
+
 	f.origins = make([]*FilerBackend, len(cfg.Origins))
 	for i := range cfg.Origins {
-		f.origins[i] = NewFilerBackend(cfg.Origins[i])
+		f.origins[i] = NewFilerBackend(cfg.Origins[i], ua)
 	}
 
 	f.grabber = grab.NewClient()
-	f.grabber.UserAgent = "mdb-fs"
+	f.grabber.UserAgent = ua
 
 	return f
 }

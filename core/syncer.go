@@ -43,7 +43,7 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 
 	// first time reload
 	if err := s.reload(); err != nil {
-		log.Printf("[ERROR] Syncer.reload %s", err.Error())
+		log.Printf("[ERROR] Syncer.reload %s\n", err.Error())
 	}
 
 	// batch process until quit or refresh
@@ -56,7 +56,7 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 				return
 			case <-ticker.C:
 				if err := s.reload(); err != nil {
-					log.Printf("[ERROR] Syncer.reload %s", err.Error())
+					log.Printf("[ERROR] Syncer.reload %s\n", err.Error())
 				}
 			default:
 				continue
@@ -68,7 +68,7 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 				return
 			case <-ticker.C:
 				if err := s.reload(); err != nil {
-					log.Printf("[ERROR] Syncer.reload %s", err.Error())
+					log.Printf("[ERROR] Syncer.reload %s\n", err.Error())
 				}
 			}
 		}
@@ -105,16 +105,19 @@ func (s *Syncer) reload() error {
 	log.Println("Syncer.reload()")
 	s.reloads++
 
+	// read local index
 	idx, err := s.reloadLocal()
 	if err != nil {
 		return errors.Wrap(err, "Syncer.reloadLocal")
 	}
 
+	// augment index with missing files (in mdb not in local storage)
 	err = s.reloadMDB(idx)
 	if err != nil {
 		return errors.Wrap(err, "Syncer.reloadMDB")
 	}
 
+	// determine files to fetch
 	files := make([]*FileRecord, 0)
 	for _, v := range idx {
 		if v.MdbID > 0 && !v.LocalCopy {
@@ -131,7 +134,7 @@ func (s *Syncer) reload() error {
 }
 
 func (s *Syncer) reloadLocal() (map[string]*FileRecord, error) {
-	f, err := os.Open(filepath.Join(s.cfg.RootDir, ".index"))
+	f, err := os.Open(filepath.Join(s.cfg.RootDir, "index"))
 	if err != nil {
 		return nil, errors.Wrap(err, "os.Open")
 	}
@@ -148,7 +151,7 @@ func (s *Syncer) reloadLocal() (map[string]*FileRecord, error) {
 
 		s := strings.Split(line, ",")
 		if len(s) != 4 || len(s[1]) != 42 {
-			log.Printf("Syncer.reloadLocal: Bad line %d", i)
+			log.Printf("Syncer.reloadLocal: Bad line %d\n", i)
 			continue
 		}
 

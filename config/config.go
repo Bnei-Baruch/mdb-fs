@@ -13,6 +13,7 @@ type Config struct {
 	Origins  []string
 	Fetchers int
 	SyncUpdateInterval time.Duration
+	SuitcaseID   string
 }
 
 func (c *Config) Load() {
@@ -36,4 +37,6 @@ func (c *Config) Load() {
 	if err != nil {
 		log.Fatalf("sync-update-interval: %s\n", err.Error())
 	}
+
+	c.SuitcaseID = config.Get("suitcase-id").(string)
 }
