@@ -36,13 +36,15 @@ func (t FetchTask) Do(ctx context.Context) error {
 	for i := 0; i < len(t.factory.origins); i++ {
 		url, err = t.factory.origins[i].RegisterFile(ctx, t.Sha1)
 		if err != nil {
-			log.Printf("%s: Origin [%d] register error: %s\n", t, i, err.Error())
+			log.Printf("%s [worker %v]: Origin [%d] register error: %s\n",
+				t, ctx.Value("WORKER_ID"), i, err.Error())
 			continue
 		}
 
 		err = t.doGrab(ctx, t.Dest, url)
 		if err != nil {
-			log.Printf("Download error: %s\n", err.Error())
+			log.Printf("Download error [worker %v]: %s\n",
+				ctx.Value("WORKER_ID"), err.Error())
 			continue
 		} else {
 			err = nil
@@ -83,7 +85,8 @@ func (t FetchTask) doGrab(ctx context.Context, dst string, url string) error {
 		return errors.Wrapf(err, "%s resp.Err() %s", url, LogHttpResponse(resp.HTTPResponse))
 	}
 
-	log.Printf("Downloaded %s %s %.f[KBps] \n", url, resp.Duration(), resp.BytesPerSecond()/1024)
+	log.Printf("[worker %v] Downloaded %s %s %.f[KBps] \n",
+		ctx.Value("WORKER_ID"), url, resp.Duration(), resp.BytesPerSecond()/1024)
 
 	return nil
 }

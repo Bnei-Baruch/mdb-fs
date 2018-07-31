@@ -28,9 +28,10 @@ func NewTaskQueue(cfg *config.Config) *TaskQueue {
 		// Start worker here.
 		go func(id int) {
 			// process jobs all my life
+			wCtx := context.WithValue(ctx, "WORKER_ID", id)
 			for job := range q.jobs {
-				if err := job.Do(ctx); err != nil {
-					log.Printf("[ERROR]: %s\n", err.Error())
+				if err := job.Do(wCtx); err != nil {
+					log.Printf("[ERROR]: Worker %d: %s\n", id, err.Error())
 				}
 			}
 
@@ -65,6 +66,10 @@ func (q *TaskQueue) Enqueue(task Task, timeout time.Duration) error {
 	case q.jobs <- task:
 		return nil
 	}
+}
+
+func (q *TaskQueue) Size() int {
+	return len(q.jobs)
 }
 
 // WaitTimeout does a Wait on a sync.WaitGroup object but with a specified

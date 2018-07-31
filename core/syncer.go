@@ -1,13 +1,9 @@
 package core
 
 import (
-	"bufio"
 	"database/sql"
 	"encoding/hex"
 	"log"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -62,7 +58,17 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 				continue
 			}
 		} else {
-			// no more items to process, blocking wait for either quit or reload
+			// no more items to process
+
+			// update index if no download is in progress
+			if s.queue.Size() == 0 {
+				log.Println("No more files to download, no jobs in queue. Scan & Reap index")
+				if err := s.fs.ScanReap(); err != nil {
+					log.Printf("[ERROR] Syncer.fs.ScanReap %s\n", err.Error())
+				}
+			}
+
+			// blocking wait for either quit or reload
 			select {
 			case <-s.quit:
 				return
@@ -106,9 +112,9 @@ func (s *Syncer) reload() error {
 	s.reloads++
 
 	// read local index
-	idx, err := s.reloadLocal()
+	idx, err := s.fs.ReadIndex()
 	if err != nil {
-		return errors.Wrap(err, "Syncer.reloadLocal")
+		return errors.Wrap(err, "Syncer.fs.ReadIndex")
 	}
 
 	// augment index with missing files (in mdb not in local storage)
@@ -133,43 +139,6 @@ func (s *Syncer) reload() error {
 	return nil
 }
 
-func (s *Syncer) reloadLocal() (map[string]*FileRecord, error) {
-	f, err := os.Open(filepath.Join(s.cfg.RootDir, "index"))
-	if err != nil {
-		return nil, errors.Wrap(err, "os.Open")
-	}
-
-	i := 0
-	idx := make(map[string]*FileRecord)
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		i++
-		line := strings.TrimSpace(scanner.Text())
-		if line[0] == '#' {
-			continue
-		}
-
-		s := strings.Split(line, ",")
-		if len(s) != 4 || len(s[1]) != 42 {
-			log.Printf("Syncer.reloadLocal: Bad line %d\n", i)
-			continue
-		}
-
-		sha1 := s[1][1:41]
-		idx[sha1] = &FileRecord{
-			Sha1:      sha1,
-			LocalCopy: true,
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, errors.Wrap(err, "scanner.Err()")
-	}
-
-	log.Printf("Syncer.reloadLocal: %d files in local FS\n", len(idx))
-
-	return idx, nil
-}
-
 func (s *Syncer) reloadMDB(idx map[string]*FileRecord) error {
 	db, err := sql.Open("postgres", s.cfg.MdbUrl)
 	if err != nil {
@@ -177,7 +146,7 @@ func (s *Syncer) reloadMDB(idx map[string]*FileRecord) error {
 	}
 	defer db.Close()
 
-	rows, err := db.Query("select id, sha1 from files where sha1 is not null and published is true order by created_at desc limit 20")
+	rows, err := db.Query("select id, sha1 from files where sha1 is not null and published is true order by created_at desc limit 100")
 	if err != nil {
 		return errors.Wrap(err, "db.Query")
 	}
