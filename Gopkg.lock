@@ -4,7 +4,7 @@
 [[projects]]
   name = "github.com/cavaliercoder/grab"
   packages = ["."]
-  revision = "3b6830dae49bc01e25b4676dae3a2a06c1b1485e"
+  revision = "466b5c0dd1d077be6de521d4e753734b17899a4d"
   version = "v2.0.0"
 
 [[projects]]

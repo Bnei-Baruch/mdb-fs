@@ -3,21 +3,22 @@ package grab
 import (
 	"context"
 	"io"
-	"sync"
+	"sync/atomic"
 )
 
 type transfer struct {
-	mu  sync.Mutex // guards n
+	n   int64 // must be 64bit aligned on 386
 	ctx context.Context
+	lim RateLimiter
 	w   io.Writer
 	r   io.Reader
 	b   []byte
-	n   int64
 }
 
-func newTransfer(ctx context.Context, dst io.Writer, src io.Reader, buf []byte) *transfer {
+func newTransfer(ctx context.Context, lim RateLimiter, dst io.Writer, src io.Reader, buf []byte) *transfer {
 	return &transfer{
 		ctx: ctx,
+		lim: lim,
 		w:   dst,
 		r:   src,
 		b:   buf,
@@ -38,14 +39,18 @@ func (c *transfer) copy() (written int64, err error) {
 		default:
 			// keep working
 		}
+		if c.lim != nil {
+			err = c.lim.WaitN(c.ctx, len(c.b))
+			if err != nil {
+				return
+			}
+		}
 		nr, er := c.r.Read(c.b)
 		if nr > 0 {
 			nw, ew := c.w.Write(c.b[0:nr])
 			if nw > 0 {
 				written += int64(nw)
-				c.mu.Lock()
-				c.n = written
-				c.mu.Unlock()
+				atomic.StoreInt64(&c.n, written)
 			}
 			if ew != nil {
 				err = ew
@@ -67,11 +72,10 @@ func (c *transfer) copy() (written int64, err error) {
 }
 
 // N returns the number of bytes transferred.
-func (c *transfer) N() int64 {
+func (c *transfer) N() (n int64) {
 	if c == nil {
 		return 0
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.n
+	n = atomic.LoadInt64(&c.n)
+	return
 }

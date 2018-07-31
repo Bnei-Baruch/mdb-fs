@@ -72,12 +72,19 @@ func (c *Client) Do(req *Request) *Response {
 		ctx:        ctx,
 		cancel:     cancel,
 		bufferSize: req.BufferSize,
-		writeFlags: os.O_CREATE | os.O_WRONLY,
 	}
 	if resp.bufferSize == 0 {
+		// default to Client.BufferSize
 		resp.bufferSize = c.BufferSize
 	}
+
+	// Run state-machine while caller is blocked to initialize the file transfer.
+	// Must never transition to the copyFile state - this happens next in another
+	// goroutine.
 	c.run(resp, c.statFileInfo)
+
+	// Run copyFile in a new goroutine. copyFile will no-op if the transfer is
+	// already complete or failed.
 	go c.run(resp, c.copyFile)
 	return resp
 }
@@ -234,7 +241,6 @@ func (c *Client) validateLocal(resp *Response) stateFunc {
 	}
 
 	if resp.Request.NoResume {
-		resp.writeFlags = os.O_TRUNC | os.O_WRONLY
 		return c.getRequest
 	}
 
@@ -244,10 +250,11 @@ func (c *Client) validateLocal(resp *Response) stateFunc {
 	}
 
 	if resp.CanResume {
-		resp.Request.HTTPRequest.Header.Set("Range", fmt.Sprintf("bytes=%d-", resp.fi.Size()))
+		resp.Request.HTTPRequest.Header.Set(
+			"Range",
+			fmt.Sprintf("bytes=%d-", resp.fi.Size()))
 		resp.DidResume = true
 		resp.bytesResumed = resp.fi.Size()
-		resp.writeFlags = os.O_APPEND | os.O_WRONLY
 		return c.getRequest
 	}
 	return c.headRequest
@@ -271,7 +278,7 @@ func (c *Client) checksumFile(resp *Response) stateFunc {
 	defer f.Close()
 
 	// hash file
-	t := newTransfer(resp.Request.Context(), resp.Request.hash, f, nil)
+	t := newTransfer(resp.Request.Context(), nil, resp.Request.hash, f, nil)
 	if nc, err := t.copy(); err != nil {
 		resp.err = err
 		return c.closeResponse
@@ -380,7 +387,7 @@ func (c *Client) readResponse(resp *Response) stateFunc {
 // openWriter opens the destination file for writing and seeks to the location
 // from whence the file transfer will resume.
 //
-// Requires that Response.Filename and Response.writeFlags already be set.
+// Requires that Response.Filename and resp.DidResume are already be set.
 func (c *Client) openWriter(resp *Response) stateFunc {
 	if !resp.Request.NoCreateDirectories {
 		resp.err = mkdirp(resp.Filename)
@@ -389,7 +396,18 @@ func (c *Client) openWriter(resp *Response) stateFunc {
 		}
 	}
 
-	f, err := os.OpenFile(resp.Filename, resp.writeFlags, 0644)
+	// compute write flags
+	flag := os.O_CREATE | os.O_WRONLY
+	if resp.fi != nil {
+		if resp.DidResume {
+			flag = os.O_APPEND | os.O_WRONLY
+		} else {
+			flag = os.O_TRUNC | os.O_WRONLY
+		}
+	}
+
+	// open file
+	f, err := os.OpenFile(resp.Filename, flag, 0644)
 	if err != nil {
 		resp.err = err
 		return c.closeResponse
@@ -405,6 +423,18 @@ func (c *Client) openWriter(resp *Response) stateFunc {
 	if resp.err != nil {
 		return c.closeResponse
 	}
+
+	// init transfer
+	if resp.bufferSize < 1 {
+		resp.bufferSize = 32 * 1024
+	}
+	b := make([]byte, resp.bufferSize)
+	resp.transfer = newTransfer(
+		resp.Request.Context(),
+		resp.Request.RateLimiter,
+		resp.writer,
+		resp.HTTPResponse.Body,
+		b)
 
 	// next step is copyFile, but this will be called later in another goroutine
 	return nil
@@ -424,12 +454,10 @@ func (c *Client) copyFile(resp *Response) stateFunc {
 		}
 	}
 
-	if resp.bufferSize < 1 {
-		resp.bufferSize = 32 * 1024
+	if resp.transfer == nil {
+		panic("developer error: Response.transfer is not initialized")
 	}
-	b := make([]byte, resp.bufferSize)
 	go resp.watchBps()
-	resp.transfer = newTransfer(resp.Request.Context(), resp.writer, resp.HTTPResponse.Body, b)
 	if _, resp.err = resp.transfer.copy(); resp.err != nil {
 		return c.closeResponse
 	}
