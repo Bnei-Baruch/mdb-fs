@@ -146,7 +146,7 @@ func (s *Syncer) reloadMDB(idx map[string]*FileRecord) error {
 	}
 	defer db.Close()
 
-	rows, err := db.Query("select id, sha1 from files where sha1 is not null and published is true order by created_at desc limit 100")
+	rows, err := db.Query("select id, sha1 from files where sha1 is not null and removed_at is null and published is true")
 	if err != nil {
 		return errors.Wrap(err, "db.Query")
 	}
