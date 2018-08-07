@@ -31,7 +31,7 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 	ticker := time.NewTicker(cfg.SyncUpdateInterval)
 
 	// initialize Sha1 FS
-	s.fs = NewSha1FS(cfg.RootDir)
+	s.fs = NewSha1FS(cfg)
 
 	// initialize fetchers
 	s.taskFactory = fetch.NewTaskFactory(cfg)

@@ -39,7 +39,7 @@ func sync(cfg *config.Config) {
 func index(cfg *config.Config) {
 	log.Println("Starting FS index")
 
-	fs := core.NewSha1FS(cfg.RootDir)
+	fs := core.NewSha1FS(cfg)
 	if err := fs.ScanReap(); err != nil {
 		log.Fatalf("fs.ScanReap: %s", err.Error())
 	}

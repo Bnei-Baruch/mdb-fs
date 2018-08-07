@@ -12,6 +12,7 @@ type Config struct {
 	MdbUrl   string
 	Origins  []string
 	Fetchers int
+	IndexWorkers int
 	SyncUpdateInterval time.Duration
 	SuitcaseID   string
 }
@@ -32,6 +33,7 @@ func (c *Config) Load() {
 	}
 
 	c.Fetchers = int(config.GetDefault("fetchers", 1).(int64))
+	c.IndexWorkers = int(config.GetDefault("index-workers", 1).(int64))
 
 	c.SyncUpdateInterval, err = time.ParseDuration(config.Get("sync-update-interval").(string))
 	if err != nil {

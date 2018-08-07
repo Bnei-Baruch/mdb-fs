@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Bnei-Baruch/mdb-fs/config"
 	"github.com/pkg/errors"
+	"sync"
 )
 
 type FileRecord struct {
@@ -55,12 +57,14 @@ func (r *FileRecord) ToLine(path string) string {
 }
 
 type Sha1FS struct {
-	Root string
+	Root            string
+	ScanReapWorkers int
 }
 
-func NewSha1FS(root string) *Sha1FS {
+func NewSha1FS(cfg *config.Config) *Sha1FS {
 	fs := new(Sha1FS)
-	fs.Root = root
+	fs.Root = cfg.RootDir
+	fs.ScanReapWorkers = cfg.IndexWorkers
 	return fs
 }
 
@@ -124,6 +128,15 @@ func (fs *Sha1FS) WriteIndex(idx map[string]*FileRecord) error {
 	return nil
 }
 
+type ChecksumTask struct {
+	Path     string
+	Checksum string
+	Err      error
+	FName    string
+	FSize    int64
+	FModTime int64
+}
+
 func (fs *Sha1FS) ScanReap() error {
 	// read current index
 	idx, err := fs.ReadIndex()
@@ -136,70 +149,119 @@ func (fs *Sha1FS) ScanReap() error {
 		v.LocalCopy = false
 	}
 
-	// walk all files
+	csTasks := make(chan *ChecksumTask, 1024)
+	csResults := make(chan *ChecksumTask)
+	var wgWorkers sync.WaitGroup
+	var wgCollector sync.WaitGroup
+	var idxLock sync.RWMutex
+
+	// counters incremented only in results collector
 	noChange := 0
 	added := 0
 	updated := 0
 	removed := 0
 	ghosts := 0
+
+	// ChecksumTask results collector
+	go func(c chan *ChecksumTask) {
+		for t := range c {
+			if t.Err != nil {
+				log.Printf("[ERROR] Sha1FS.ScanReap: compute file checksum %s: %s\n", t.Path, t.Err.Error())
+				continue
+			}
+
+			idxLock.Lock()
+
+			// if computed checksum matches the file name we update the index
+			// else we drop it
+
+			if t.FName == t.Checksum {
+				if r, ok := idx[t.FName]; ok {
+					r.Size = t.FSize
+					r.ModTime = time.Unix(t.FModTime, 0)
+					updated++
+				} else {
+					idx[t.Checksum] = &FileRecord{
+						Sha1:      t.Checksum,
+						Size:      t.FSize,
+						ModTime:   time.Unix(t.FModTime, 0),
+						LocalCopy: true,
+					}
+					added++
+				}
+			} else {
+				delete(idx, t.FName)
+				log.Printf("Sha1FS.ScanReap: modified file bad checksum, removing physical file: %s\n", t.Path)
+				if err := os.Remove(t.Path); err != nil {
+					log.Printf("[ERROR] Sha1FS.ScanReap: remove bad file %s: %s\n", t.Path, err.Error())
+				}
+				removed++
+			}
+
+			idxLock.Unlock()
+		}
+		wgCollector.Done()
+	}(csResults)
+	wgCollector.Add(1)
+
+	// ChecksumTask workers
+	for i := 0; i < fs.ScanReapWorkers; i++ {
+		go func(id int, c chan *ChecksumTask, r chan<- *ChecksumTask) {
+			for t := range c {
+				t.Checksum, t.Err = Sha1Sum(t.Path)
+				r <- t
+			}
+			wgWorkers.Done()
+		}(i, csTasks, csResults)
+		wgWorkers.Add(1)
+	}
+
+	// walk all files
+	// create and enqueue tasks when necessary
 	err = filepath.Walk(fs.Root, func(path string, info os.FileInfo, err error) error {
 		// skip directories and our own index file
 		if info.IsDir() || info.Name() == "index" {
 			return nil
 		}
 
-		// process file
-		sha1 := info.Name()
-		size := info.Size()
-		modTime := info.ModTime().Unix()
-		if r, ok := idx[sha1]; ok {
+		// prepare task for file
+		csTask := &ChecksumTask{
+			Path:     path,
+			FName:    info.Name(),
+			FSize:    info.Size(),
+			FModTime: info.ModTime().Unix(),
+		}
+
+		idxLock.RLock()
+		r, ok := idx[csTask.FName]
+		idxLock.RUnlock()
+
+		if ok {
 			r.LocalCopy = true
 
-			if size == r.Size && modTime == r.ModTime.Unix() {
+			// no change
+			if csTask.FSize == r.Size && csTask.FModTime == r.ModTime.Unix() {
 				noChange++
-			} else {
-				// File has changed from previous scan.
-				// We compute it's checksum and compare.
-				// If it matches the file's name we update the index else we drop it.
-
-				cs, err := Sha1Sum(path)
-				if err != nil {
-					log.Printf("[ERROR] Sha1FS.ScanReap: compute modified file checksum %s: %s\n", path, err.Error())
-					return nil
-				}
-
-				if sha1 == cs {
-					idx[sha1].Size = size
-					idx[sha1].ModTime = time.Unix(modTime, 0)
-					updated++
-				} else {
-					delete(idx, sha1)
-					log.Printf("Sha1FS.ScanReap: modified file bad checksum, removing physical file: %s\n", path)
-					if err := os.Remove(path); err != nil {
-						log.Printf("[ERROR] Sha1FS.ScanReap: remove bad file %s: %s\n", path, err.Error())
-					}
-					removed++
-				}
-			}
-		} else {
-			// first time we see this file
-			cs, err := Sha1Sum(path)
-			if err != nil {
-				log.Printf("[ERROR] Sha1FS.ScanReap: compute new file checksum %s: %s\n", path, err.Error())
 				return nil
 			}
-
-			idx[cs] = &FileRecord{
-				Sha1:      cs,
-				Size:      size,
-				ModTime:   time.Unix(modTime, 0),
-				LocalCopy: true,
-			}
-			added++
 		}
+
+		csTasks <- csTask
 
 		return nil
 	})
+
+	log.Println("Sha1FS.ScanReap: done walking FS, closing tasks channel")
+	close(csTasks)
+
+	log.Println("Sha1FS.ScanReap: waiting for workers to finish")
+	wgWorkers.Wait()
+
+	log.Println("Sha1FS.ScanReap: closing results channel")
+	close(csResults)
+
+	log.Println("Sha1FS.ScanReap: waiting for results collector to finish")
+	wgCollector.Wait()
 
 	if err != nil {
 		return errors.Wrap(err, "filepath.Walk")
@@ -213,7 +275,7 @@ func (fs *Sha1FS) ScanReap() error {
 		}
 	}
 
-	log.Printf("Sha1FS.ScanReap: %d no change, %d added, %d updated, %d removed, %d ghosts",
+	log.Printf("Sha1FS.ScanReap: %d no change, %d added, %d updated, %d removed, %d ghosts\n",
 		noChange, added, updated, removed, ghosts)
 
 	// write index to file
