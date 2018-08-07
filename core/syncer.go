@@ -146,7 +146,11 @@ func (s *Syncer) reloadMDB(idx map[string]*FileRecord) error {
 	}
 	defer db.Close()
 
-	rows, err := db.Query("select id, sha1 from files where sha1 is not null and removed_at is null and published is true")
+	rows, err := db.Query(`select id, sha1
+from files
+where sha1 is not null
+  and removed_at is null
+  and (published is true or type in ('image', 'text'))`)
 	if err != nil {
 		return errors.Wrap(err, "db.Query")
 	}
@@ -161,7 +165,9 @@ func (s *Syncer) reloadMDB(idx map[string]*FileRecord) error {
 		}
 
 		sha1 := hex.EncodeToString(b)
-		if _, ok := idx[sha1]; !ok {
+		if r, ok := idx[sha1]; ok {
+			r.MdbID = id
+		} else {
 			idx[sha1] = &FileRecord{
 				Sha1:      sha1,
 				MdbID:     id,
