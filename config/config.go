@@ -8,13 +8,13 @@ import (
 )
 
 type Config struct {
-	RootDir  string
-	MdbUrl   string
-	Origins  []string
-	Fetchers int
-	IndexWorkers int
+	RootDir            string
+	MdbUrl             string
+	Origins            []string
+	Fetchers           int
+	IndexWorkers       int
 	SyncUpdateInterval time.Duration
-	SuitcaseID   string
+	SuitcaseID         string
 }
 
 func (c *Config) Load() {
