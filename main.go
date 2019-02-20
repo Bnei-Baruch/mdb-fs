@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/Bnei-Baruch/mdb-fs/config"
 	"github.com/Bnei-Baruch/mdb-fs/core"
+	"github.com/Bnei-Baruch/mdb-fs/version"
 )
 
 func sync(cfg *config.Config) {
@@ -62,6 +64,8 @@ func main() {
 		index(cfg)
 	case "sync":
 		sync(cfg)
+	case "version":
+		fmt.Printf("BB archive MDB FileSystem version %s\n", version.Version)
 	default:
 		log.Printf("[ERROR] Unknown command: %s, default is sync\n", cmd)
 		sync(cfg)
