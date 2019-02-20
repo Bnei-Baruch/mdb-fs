@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"log"
+	"sync"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -21,7 +22,7 @@ type Syncer struct {
 	taskFactory *fetch.TaskFactory
 	files       []*FileRecord
 	pos         int
-	reloads     int
+	wErrs		sync.Map
 }
 
 func (s *Syncer) DoSync(cfg *config.Config) {
@@ -36,6 +37,7 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 	// initialize fetchers
 	s.taskFactory = fetch.NewTaskFactory(cfg)
 	s.queue = fetch.NewTaskQueue(cfg)
+	s.queue.AddListener(s)
 
 	// first time reload
 	if err := s.reload(); err != nil {
@@ -89,11 +91,29 @@ func (s *Syncer) Close() {
 	s.queue.Close()
 }
 
+func (s *Syncer) OnTaskScheduled(task *fetch.Task) {
+	// No-op
+}
+
+func (s *Syncer) OnTaskErr(task *fetch.Task, err error) {
+
+}
+
+func (s *Syncer) OnTaskDone(task *fetch.Task, resp interface{}) {
+	// No-op
+}
+
 func (s *Syncer) enqueueNext() bool {
 	if s.pos < len(s.files) {
 		sha1 := s.files[s.pos].Sha1
 
 		if s.fs.IsExistValid(sha1) {
+			s.pos++
+			return s.pos < len(s.files)
+		}
+
+		// skip files whom errored before (this is cleared on reload)
+		if _, ok := s.wErrs.Load(sha1); ok {
 			s.pos++
 			return s.pos < len(s.files)
 		}
@@ -109,7 +129,6 @@ func (s *Syncer) enqueueNext() bool {
 
 func (s *Syncer) reload() error {
 	log.Println("Syncer.reload()")
-	s.reloads++
 
 	// read local index
 	idx, err := s.fs.ReadIndex()
@@ -135,6 +154,7 @@ func (s *Syncer) reload() error {
 
 	s.files = files
 	s.pos = 0
+	s.wErrs = sync.Map{}
 
 	return nil
 }

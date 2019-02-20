@@ -11,10 +11,17 @@ import (
 	"github.com/Bnei-Baruch/mdb-fs/config"
 )
 
+type TaskListener interface {
+	OnTaskScheduled(*Task)
+	OnTaskErr(*Task, error)
+	OnTaskDone(*Task, interface{})
+}
+
 type TaskQueue struct {
-	jobs   chan Task
-	wg     sync.WaitGroup
-	cancel context.CancelFunc
+	jobs      chan Task
+	wg        sync.WaitGroup
+	cancel    context.CancelFunc
+	listeners []*TaskListener
 }
 
 func NewTaskQueue(cfg *config.Config) *TaskQueue {
@@ -70,6 +77,10 @@ func (q *TaskQueue) Enqueue(task Task, timeout time.Duration) error {
 
 func (q *TaskQueue) Size() int {
 	return len(q.jobs)
+}
+
+func (q *TaskQueue) AddListener(l *TaskListener) {
+	q.listeners = append(q.listeners, l)
 }
 
 // WaitTimeout does a Wait on a sync.WaitGroup object but with a specified
