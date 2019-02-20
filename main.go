@@ -52,7 +52,7 @@ func main() {
 	var cfg = new(config.Config)
 	cfg.Load()
 
-	cmd := "sync"
+	cmd := "version"
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
 	}
@@ -65,7 +65,6 @@ func main() {
 	case "version":
 		fmt.Printf("BB archive MDB FileSystem version %s\n", version.Version)
 	default:
-		log.Printf("[ERROR] Unknown command: %s, default is sync\n", cmd)
-		sync(cfg)
+		log.Printf("[ERROR] Unknown command: %s\n", cmd)
 	}
 }
