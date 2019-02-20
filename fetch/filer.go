@@ -80,7 +80,7 @@ func (fb *FilerBackend) RegisterFile(ctx context.Context, sha1 string) (string, 
 	}
 
 	// physical file doesn't exists
-	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound{
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
 		return "", errors.New("NOT_FOUND")
 	}
 

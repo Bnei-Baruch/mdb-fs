@@ -15,36 +15,39 @@ import (
 )
 
 type Task interface {
-	Do(context.Context) error
+	Do(context.Context) (interface{}, error)
 }
 
 type FetchTask struct {
 	Sha1    string
 	Dest    string
 	factory *TaskFactory
+	url     string
 }
 
-func (t FetchTask) String() string {
+func (t *FetchTask) String() string {
 	return fmt.Sprintf("FetchTask %s", t.Sha1)
 }
 
-func (t FetchTask) Do(ctx context.Context) error {
+func (t *FetchTask) Do(ctx context.Context) (interface{}, error) {
+	var err error
+	var resp interface{}
+	var url string
+
 	// Find the first origin with the file and try to download.
 	// If download wasn't successful then go on to the next.
-	var url string
-	var err error
 	for i := 0; i < len(t.factory.origins); i++ {
 		url, err = t.factory.origins[i].RegisterFile(ctx, t.Sha1)
 		if err != nil {
-			log.Printf("%s [worker %v]: Origin [%d] register error: %s\n",
-				t, ctx.Value("WORKER_ID"), i, err.Error())
+			log.Printf("[WARNING] Worker %v: Origin [%d] register error %s: %s\n",
+				ctx.Value("WORKER_ID"), i, t, err.Error())
 			continue
 		}
 
-		err = t.doGrab(ctx, t.Dest, url)
+		resp, err = t.doGrab(ctx, t.Dest, url)
 		if err != nil {
-			log.Printf("Download error [worker %v]: %s\n",
-				ctx.Value("WORKER_ID"), err.Error())
+			log.Printf("[WARNING] Worker %v: Download error %s: %s\n",
+				ctx.Value("WORKER_ID"), t, err.Error())
 			continue
 		} else {
 			err = nil
@@ -52,13 +55,18 @@ func (t FetchTask) Do(ctx context.Context) error {
 		}
 	}
 
-	return err
+	t.url = url
+	return resp, err
 }
 
-func (t FetchTask) doGrab(ctx context.Context, dst string, url string) error {
+func (t *FetchTask) OriginUrl() string {
+	return t.url
+}
+
+func (t *FetchTask) doGrab(ctx context.Context, dst string, url string) (*grab.Response, error) {
 	req, err := grab.NewRequest(dst, url)
 	if err != nil {
-		return errors.Wrap(err, "grab.NewRequest")
+		return nil, errors.Wrap(err, "grab.NewRequest")
 	}
 
 	// we want our own times
@@ -80,15 +88,12 @@ func (t FetchTask) doGrab(ctx context.Context, dst string, url string) error {
 	// blocking wait for complete or error
 	if err := resp.Err(); err != nil {
 		if resp.HTTPResponse.StatusCode == http.StatusNotFound {
-			return errors.Errorf("%s 404 Not Found", url)
+			return nil, errors.Errorf("%s 404 Not Found", url)
 		}
-		return errors.Wrapf(err, "%s resp.Err() %s", url, LogHttpResponse(resp.HTTPResponse))
+		return nil, errors.Wrapf(err, "%s resp.Err() %s", url, LogHttpResponse(resp.HTTPResponse))
 	}
 
-	log.Printf("[worker %v] Downloaded %s %s %.f[KBps] \n",
-		ctx.Value("WORKER_ID"), url, resp.Duration(), resp.BytesPerSecond()/1024)
-
-	return nil
+	return resp, nil
 }
 
 type TaskFactory struct {
@@ -114,8 +119,8 @@ func NewTaskFactory(cfg *config.Config) *TaskFactory {
 	return f
 }
 
-func (f *TaskFactory) Make(sha1 string, dest string) FetchTask {
-	return FetchTask{
+func (f *TaskFactory) Make(sha1 string, dest string) *FetchTask {
+	return &FetchTask{
 		factory: f,
 		Sha1:    sha1,
 		Dest:    dest,
