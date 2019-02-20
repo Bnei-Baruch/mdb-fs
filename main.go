@@ -49,8 +49,6 @@ func index(cfg *config.Config) {
 }
 
 func main() {
-	log.Println("[INFO] mdb-fs start")
-
 	var cfg = new(config.Config)
 	cfg.Load()
 
@@ -70,6 +68,4 @@ func main() {
 		log.Printf("[ERROR] Unknown command: %s, default is sync\n", cmd)
 		sync(cfg)
 	}
-
-	log.Println("[INFO] mdb-fs end")
 }
