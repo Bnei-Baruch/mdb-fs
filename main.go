@@ -49,12 +49,19 @@ func index(cfg *config.Config) {
 }
 
 func main() {
-	var cfg = new(config.Config)
-	cfg.Load()
-
 	cmd := "version"
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
+	}
+
+	if cmd == "version" {
+		fmt.Printf("BB archive MDB FileSystem version %s\n", version.Version)
+		return
+	}
+
+	var cfg = new(config.Config)
+	if err := cfg.Load(); err != nil {
+		log.Fatalf("[Error] config error: %s\n", err.Error())
 	}
 
 	switch cmd {
@@ -62,8 +69,6 @@ func main() {
 		index(cfg)
 	case "sync":
 		sync(cfg)
-	case "version":
-		fmt.Printf("BB archive MDB FileSystem version %s\n", version.Version)
 	default:
 		log.Printf("[ERROR] Unknown command: %s\n", cmd)
 	}

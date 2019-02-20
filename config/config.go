@@ -1,10 +1,10 @@
 package config
 
 import (
-	"log"
 	"time"
 
 	"github.com/pelletier/go-toml"
+	"github.com/pkg/errors"
 )
 
 type Config struct {
@@ -17,10 +17,10 @@ type Config struct {
 	SuitcaseID         string
 }
 
-func (c *Config) Load() {
+func (c *Config) Load() error {
 	config, err := toml.LoadFile("config.toml")
 	if err != nil {
-		log.Fatalf("Load config file: %s\n", err.Error())
+		return errors.Wrap(err, "Load config file")
 	}
 
 	c.RootDir = config.Get("root").(string)
@@ -37,8 +37,10 @@ func (c *Config) Load() {
 
 	c.SyncUpdateInterval, err = time.ParseDuration(config.Get("sync-update-interval").(string))
 	if err != nil {
-		log.Fatalf("sync-update-interval: %s\n", err.Error())
+		return errors.Wrapf(err, "sync-update-interval: %s\n", err.Error())
 	}
 
 	c.SuitcaseID = config.Get("suitcase-id").(string)
+
+	return nil
 }
