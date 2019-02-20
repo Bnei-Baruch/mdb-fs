@@ -17,38 +17,37 @@ func sync(cfg *config.Config) {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start syncer
-	log.Println("Starting FS sync")
+	log.Println("[INFO] Starting FS sync")
 	syncer := new(core.Syncer)
 	go syncer.DoSync(cfg)
 
 	// Blocking wait for signals
 	go func() {
 		sig := <-sigs
-		log.Println()
-		log.Printf("Signal: %s\n", sig)
+		log.Printf("[INFO] Signal: %s\n", sig)
 		done <- true
 	}()
 
-	log.Println("Press Ctrl+C to exit")
+	log.Println("[INFO] Press Ctrl+C to exit")
 	<-done
 
-	log.Println("Stopping FS sync")
+	log.Println("[INFO] Stopping FS sync")
 	syncer.Close()
 }
 
 func index(cfg *config.Config) {
-	log.Println("Starting FS index")
+	log.Println("[INFO] Starting FS index")
 
 	fs := core.NewSha1FS(cfg)
 	if err := fs.ScanReap(); err != nil {
 		log.Fatalf("fs.ScanReap: %s", err.Error())
 	}
 
-	log.Println("FS index complete")
+	log.Println("[INFO] FS index complete")
 }
 
 func main() {
-	log.Println("mdb-fs start")
+	log.Println("[INFO] mdb-fs start")
 
 	var cfg = new(config.Config)
 	cfg.Load()
@@ -64,9 +63,9 @@ func main() {
 	case "sync":
 		sync(cfg)
 	default:
-		log.Printf("Unknown command: %s, default is sync\n", cmd)
+		log.Printf("[ERROR] Unknown command: %s, default is sync\n", cmd)
 		sync(cfg)
 	}
 
-	log.Println("mdb-fs end")
+	log.Println("[INFO] mdb-fs end")
 }

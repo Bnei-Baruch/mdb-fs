@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"log"
+	"net/url"
 	"sync"
 	"time"
 
+	"github.com/cavaliercoder/grab"
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
 
@@ -22,7 +24,7 @@ type Syncer struct {
 	taskFactory *fetch.TaskFactory
 	files       []*FileRecord
 	pos         int
-	wErrs		sync.Map
+	wErrs       sync.Map
 }
 
 func (s *Syncer) DoSync(cfg *config.Config) {
@@ -64,7 +66,7 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 
 			// update index if no download is in progress
 			if s.queue.Size() == 0 {
-				log.Println("No more files to download, no jobs in queue. Scan & Reap index")
+				log.Println("[INFO] No more files to download, no jobs in queue. Scan & Reap index")
 				if err := s.fs.ScanReap(); err != nil {
 					log.Printf("[ERROR] Syncer.fs.ScanReap %s\n", err.Error())
 				}
@@ -84,23 +86,35 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 }
 
 func (s *Syncer) Close() {
-	log.Println("Syncer - signal quit channel")
+	log.Println("[INFO] Syncer - signal quit channel")
 	s.quit <- true
 
-	log.Println("Syncer - close work queue")
+	log.Println("[INFO] Syncer - close work queue")
 	s.queue.Close()
 }
 
-func (s *Syncer) OnTaskScheduled(task *fetch.Task) {
+func (s *Syncer) OnTaskEnqueue(task fetch.Task) {
 	// No-op
 }
 
-func (s *Syncer) OnTaskErr(task *fetch.Task, err error) {
-
+func (s *Syncer) OnTaskRun(workerID int, task fetch.Task) {
+	// No-op
 }
 
-func (s *Syncer) OnTaskDone(task *fetch.Task, resp interface{}) {
-	// No-op
+func (s *Syncer) OnTaskComplete(workerID int, task fetch.Task, resp interface{}, err error) {
+	ft := task.(*fetch.FetchTask)
+	if err != nil {
+		log.Printf("[ERROR] Worker %d: %s\n", workerID, err.Error())
+		s.wErrs.Store(ft.Sha1, err)
+	} else {
+		gResp := resp.(*grab.Response)
+		originUrl := ft.OriginUrl()
+		if pUrl, err := url.Parse(originUrl); err == nil {
+			originUrl = pUrl.Host
+		}
+		log.Printf("[INFO] Worker %d: Downloaded %s from %s in %d[s] at %.f[KBps]\n",
+			workerID, ft.Sha1, originUrl, gResp.Duration()/time.Second, gResp.BytesPerSecond()/1024)
+	}
 }
 
 func (s *Syncer) enqueueNext() bool {
@@ -112,8 +126,9 @@ func (s *Syncer) enqueueNext() bool {
 			return s.pos < len(s.files)
 		}
 
-		// skip files whom errored before (this is cleared on reload)
+		// skip files whom errored before (cleared on reload)
 		if _, ok := s.wErrs.Load(sha1); ok {
+			log.Printf("[INFO] Skipping file with error %s\n", sha1)
 			s.pos++
 			return s.pos < len(s.files)
 		}
@@ -128,18 +143,18 @@ func (s *Syncer) enqueueNext() bool {
 }
 
 func (s *Syncer) reload() error {
-	log.Println("Syncer.reload()")
+	log.Println("[INFO] Syncer.reload()")
 
 	// read local index
 	idx, err := s.fs.ReadIndex()
 	if err != nil {
-		return errors.Wrap(err, "Syncer.fs.ReadIndex")
+		return errors.Wrap(err, "[INFO] Syncer.fs.ReadIndex")
 	}
 
 	// augment index with missing files (in mdb not in local storage)
 	err = s.reloadMDB(idx)
 	if err != nil {
-		return errors.Wrap(err, "Syncer.reloadMDB")
+		return errors.Wrap(err, "[INFO] Syncer.reloadMDB")
 	}
 
 	// determine files to fetch
@@ -150,10 +165,11 @@ func (s *Syncer) reload() error {
 		}
 	}
 
-	log.Printf("%d files to fetch\n", len(files))
-
+	log.Printf("[INFO] %d files to fetch\n", len(files))
 	s.files = files
 	s.pos = 0
+
+	log.Printf("[INFO] %d files with errors. Clearing...\n", s.wErrsSize())
 	s.wErrs = sync.Map{}
 
 	return nil
@@ -174,10 +190,10 @@ where f.sha1 is not null
   and f.removed_at is null
   and (f.published is true or f.type in ('image', 'text'));`)
 	//rows, err := db.Query(`select id, sha1
-//from files
-//where sha1 is not null
-//  and removed_at is null
-//  and (published is true or type in ('image', 'text'))`)
+	//from files
+	//where sha1 is not null
+	//  and removed_at is null
+	//  and (published is true or type in ('image', 'text'))`)
 	if err != nil {
 		return errors.Wrap(err, "db.Query")
 	}
@@ -208,4 +224,13 @@ where f.sha1 is not null
 	}
 
 	return nil
+}
+
+func (s *Syncer) wErrsSize() int {
+	size := 0
+	s.wErrs.Range(func(_, _ interface{}) bool {
+		size++
+		return true
+	})
+	return size
 }

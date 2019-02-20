@@ -12,16 +12,16 @@ import (
 )
 
 type TaskListener interface {
-	OnTaskScheduled(*Task)
-	OnTaskErr(*Task, error)
-	OnTaskDone(*Task, interface{})
+	OnTaskEnqueue(Task)
+	OnTaskRun(int, Task)
+	OnTaskComplete(int, Task, interface{}, error)
 }
 
 type TaskQueue struct {
 	jobs      chan Task
 	wg        sync.WaitGroup
 	cancel    context.CancelFunc
-	listeners []*TaskListener
+	listeners []TaskListener
 }
 
 func NewTaskQueue(cfg *config.Config) *TaskQueue {
@@ -34,12 +34,13 @@ func NewTaskQueue(cfg *config.Config) *TaskQueue {
 	for i := 0; i < cfg.Fetchers; i++ {
 		// Start worker here.
 		go func(id int) {
-			// process jobs all my life
 			wCtx := context.WithValue(ctx, "WORKER_ID", id)
+
+			// process jobs all my life
 			for job := range q.jobs {
-				if err := job.Do(wCtx); err != nil {
-					log.Printf("[ERROR]: Worker %d: %s\n", id, err.Error())
-				}
+				q.notifyListeners("run", id, job)
+				resp, err := job.Do(wCtx)
+				q.notifyListeners("complete", id, job, resp, err)
 			}
 
 			// tell the waiting group I'm done
@@ -54,15 +55,15 @@ func NewTaskQueue(cfg *config.Config) *TaskQueue {
 }
 
 func (q *TaskQueue) Close() {
-	log.Println("TaskQueue - close jobs channel.")
+	log.Println("[INFO] TaskQueue - close jobs channel.")
 	close(q.jobs)
 
-	log.Println("TaskQueue - cancel workers context.")
+	log.Println("[INFO] TaskQueue - cancel workers context.")
 	q.cancel()
 
-	log.Println("TaskQueue - wait for workers to finish.")
+	log.Println("[INFO] TaskQueue - wait for workers to finish.")
 	if !WaitTimeout(&q.wg, 5*time.Second) {
-		log.Println("TaskQueue - WaitGroup timeout.")
+		log.Println("[INFO] TaskQueue - WaitGroup timeout.")
 	}
 }
 
@@ -71,6 +72,7 @@ func (q *TaskQueue) Enqueue(task Task, timeout time.Duration) error {
 	case <-time.After(timeout):
 		return errors.New("TIMEOUT")
 	case q.jobs <- task:
+		q.notifyListeners("enqueue", -1, task)
 		return nil
 	}
 }
@@ -79,8 +81,22 @@ func (q *TaskQueue) Size() int {
 	return len(q.jobs)
 }
 
-func (q *TaskQueue) AddListener(l *TaskListener) {
+func (q *TaskQueue) AddListener(l TaskListener) {
 	q.listeners = append(q.listeners, l)
+}
+
+func (q *TaskQueue) notifyListeners(event string, workerID int, task Task, args ...interface{}) {
+	for i := range q.listeners {
+		switch event {
+		case "enqueue":
+			q.listeners[i].OnTaskEnqueue(task)
+		case "run":
+			q.listeners[i].OnTaskRun(workerID, task)
+		case "complete":
+			err, _ := args[1].(error)
+			q.listeners[i].OnTaskComplete(workerID, task, args[0], err)
+		}
+	}
 }
 
 // WaitTimeout does a Wait on a sync.WaitGroup object but with a specified
