@@ -9,6 +9,7 @@ import (
 
 	"github.com/Bnei-Baruch/mdb-fs/config"
 	"github.com/Bnei-Baruch/mdb-fs/core"
+	"github.com/Bnei-Baruch/mdb-fs/importer"
 	"github.com/Bnei-Baruch/mdb-fs/version"
 )
 
@@ -20,7 +21,7 @@ func sync(cfg *config.Config) {
 
 	// Start syncer
 	log.Println("[INFO] Starting FS sync")
-	syncer := new(core.Syncer)
+	syncer := core.NewSyncer(cfg)
 	go syncer.DoSync(cfg)
 
 	// Blocking wait for signals
@@ -34,7 +35,7 @@ func sync(cfg *config.Config) {
 	<-done
 
 	log.Println("[INFO] Stopping FS sync")
-	syncer.Close()
+	syncer.(core.Closer).Close()
 }
 
 func index(cfg *config.Config) {
@@ -46,6 +47,17 @@ func index(cfg *config.Config) {
 	}
 
 	log.Println("[INFO] FS index complete")
+}
+
+func reshape(cfg *config.Config, folder string, mode string) {
+	log.Printf("[INFO] Starting folder reshape for %s\n", folder)
+
+	fr := importer.NewFolderReshaper(cfg)
+	if err := fr.Reshape(folder, mode); err != nil {
+		log.Fatalf("fr.Reshape: %s", err.Error())
+	}
+
+	log.Println("[INFO] folder reshape complete")
 }
 
 func main() {
@@ -69,6 +81,8 @@ func main() {
 		index(cfg)
 	case "sync":
 		sync(cfg)
+	case "reshape":
+		reshape(cfg, os.Args[2], os.Args[3])
 	default:
 		log.Printf("[ERROR] Unknown command: %s\n", cmd)
 	}

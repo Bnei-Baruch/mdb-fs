@@ -2,7 +2,7 @@ GO_FILES      = $(shell find . -path ./vendor -prune -o -type f -name "*.go" -pr
 IMPORT_PATH   = $(shell pwd | sed "s|^$(GOPATH)/src/||g")
 LDFLAGS       = -w -X $(IMPORT_PATH)/version.PreRelease=$(PRE_RELEASE)
 
-build: clean
+build: clean test
 	@go build -ldflags '$(LDFLAGS)'
 
 clean:

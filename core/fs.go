@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Bnei-Baruch/mdb-fs/config"
 	"github.com/pkg/errors"
-	"sync"
 )
 
 type FileRecord struct {

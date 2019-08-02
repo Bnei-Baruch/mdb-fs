@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 )
@@ -23,4 +24,20 @@ func Sha1Sum(path string) (string, error) {
 
 	hashInBytes := hash.Sum(nil)[:20]
 	return hex.EncodeToString(hashInBytes), nil
+}
+
+// mkdirp creates all missing parent directories for the destination file path.
+func Mkdirp(path string) error {
+	dir := filepath.Dir(path)
+	if fi, err := os.Stat(dir); err != nil {
+		if !os.IsNotExist(err) {
+			return errors.Wrapf(err, "check destination directory: %s", dir)
+		}
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return errors.Wrapf(err, "create destination directory: %s", dir)
+		}
+	} else if !fi.IsDir() {
+		return errors.New("destination path is not a directory")
+	}
+	return nil
 }

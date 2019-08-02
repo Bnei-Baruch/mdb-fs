@@ -16,9 +16,15 @@ import (
 	"github.com/Bnei-Baruch/mdb-fs/fetch"
 )
 
-type Syncer struct {
-	cfg         *config.Config
-	fs          *Sha1FS
+type Syncer interface {
+	GetFS() *Sha1FS
+	DoSync(cfg *config.Config)
+	AugmentMDBToIndex(idx map[string]*FileRecord) error
+}
+
+type SyncerImpl struct {
+	Config      *config.Config
+	FS          *Sha1FS
 	quit        chan bool
 	queue       *fetch.TaskQueue
 	taskFactory *fetch.TaskFactory
@@ -27,16 +33,17 @@ type Syncer struct {
 	wErrs       sync.Map
 }
 
-func (s *Syncer) DoSync(cfg *config.Config) {
-	s.cfg = cfg
+func NewSyncer(cfg *config.Config) Syncer {
+	return &SyncerImpl{
+		Config: cfg,
+		FS:     NewSha1FS(cfg),
+		quit:   make(chan bool),
+	}
+}
 
-	s.quit = make(chan bool)
+func (s *SyncerImpl) DoSync(cfg *config.Config) {
+	// initialize
 	ticker := time.NewTicker(cfg.SyncUpdateInterval)
-
-	// initialize Sha1 FS
-	s.fs = NewSha1FS(cfg)
-
-	// initialize fetchers
 	s.taskFactory = fetch.NewTaskFactory(cfg)
 	s.queue = fetch.NewTaskQueue(cfg)
 	s.queue.AddListener(s)
@@ -67,8 +74,8 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 			// update index if no download is in progress
 			if s.queue.Size() == 0 {
 				log.Println("[INFO] No more files to download, no jobs in queue. Scan & Reap index")
-				if err := s.fs.ScanReap(); err != nil {
-					log.Printf("[ERROR] Syncer.fs.ScanReap %s\n", err.Error())
+				if err := s.FS.ScanReap(); err != nil {
+					log.Printf("[ERROR] Syncer.FS.ScanReap %s\n", err.Error())
 				}
 			}
 
@@ -85,23 +92,27 @@ func (s *Syncer) DoSync(cfg *config.Config) {
 	}
 }
 
-func (s *Syncer) Close() {
+func (s *SyncerImpl) Close() {
 	log.Println("[INFO] Syncer - signal quit channel")
 	s.quit <- true
 
 	log.Println("[INFO] Syncer - close work queue")
-	s.queue.Close()
+	Closer(s.queue).Close()
 }
 
-func (s *Syncer) OnTaskEnqueue(task fetch.Task) {
+func (s *SyncerImpl) GetFS() *Sha1FS {
+	return s.FS
+}
+
+func (s *SyncerImpl) OnTaskEnqueue(task fetch.Task) {
 	// No-op
 }
 
-func (s *Syncer) OnTaskRun(workerID int, task fetch.Task) {
+func (s *SyncerImpl) OnTaskRun(workerID int, task fetch.Task) {
 	// No-op
 }
 
-func (s *Syncer) OnTaskComplete(workerID int, task fetch.Task, resp interface{}, err error) {
+func (s *SyncerImpl) OnTaskComplete(workerID int, task fetch.Task, resp interface{}, err error) {
 	ft := task.(*fetch.FetchTask)
 	if err != nil {
 		log.Printf("[ERROR] Worker %d: %s\n", workerID, err.Error())
@@ -117,11 +128,11 @@ func (s *Syncer) OnTaskComplete(workerID int, task fetch.Task, resp interface{},
 	}
 }
 
-func (s *Syncer) enqueueNext() bool {
+func (s *SyncerImpl) enqueueNext() bool {
 	if s.pos < len(s.files) {
 		sha1 := s.files[s.pos].Sha1
 
-		if s.fs.IsExistValid(sha1) {
+		if s.FS.IsExistValid(sha1) {
 			s.pos++
 			return s.pos < len(s.files)
 		}
@@ -133,7 +144,7 @@ func (s *Syncer) enqueueNext() bool {
 			return s.pos < len(s.files)
 		}
 
-		task := s.taskFactory.Make(sha1, s.fs.Path(sha1))
+		task := s.taskFactory.Make(sha1, s.FS.Path(sha1))
 		if err := s.queue.Enqueue(task, time.Second); err == nil {
 			s.pos++
 		}
@@ -142,19 +153,19 @@ func (s *Syncer) enqueueNext() bool {
 	return s.pos < len(s.files)
 }
 
-func (s *Syncer) reload() error {
+func (s *SyncerImpl) reload() error {
 	log.Println("[INFO] Syncer.reload()")
 
 	// read local index
-	idx, err := s.fs.ReadIndex()
+	idx, err := s.FS.ReadIndex()
 	if err != nil {
-		return errors.Wrap(err, "[INFO] Syncer.fs.ReadIndex")
+		return errors.Wrap(err, "[INFO] Syncer.FS.ReadIndex")
 	}
 
 	// augment index with missing files (in mdb not in local storage)
-	err = s.reloadMDB(idx)
+	err = s.AugmentMDBToIndex(idx)
 	if err != nil {
-		return errors.Wrap(err, "[INFO] Syncer.reloadMDB")
+		return errors.Wrap(err, "[INFO] Syncer.AugmentMDBToIndex")
 	}
 
 	// determine files to fetch
@@ -175,8 +186,8 @@ func (s *Syncer) reload() error {
 	return nil
 }
 
-func (s *Syncer) reloadMDB(idx map[string]*FileRecord) error {
-	db, err := sql.Open("postgres", s.cfg.MdbUrl)
+func (s *SyncerImpl) AugmentMDBToIndex(idx map[string]*FileRecord) error {
+	db, err := sql.Open("postgres", s.Config.MdbUrl)
 	if err != nil {
 		return errors.Wrap(err, "sql.Open")
 	}
@@ -226,7 +237,7 @@ where f.sha1 is not null
 	return nil
 }
 
-func (s *Syncer) wErrsSize() int {
+func (s *SyncerImpl) wErrsSize() int {
 	size := 0
 	s.wErrs.Range(func(_, _ interface{}) bool {
 		size++
