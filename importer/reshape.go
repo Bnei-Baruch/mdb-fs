@@ -74,6 +74,7 @@ func (fr *FolderReshaper) Reshape(folder string, mode string) error {
 				if r.LocalCopy {
 					exist++
 					if mode == MODE_RENAME {
+						log.Printf("[INFO] Remove existing file %s\n", t.Path)
 						if err := os.Remove(t.Path); err != nil {
 							log.Printf("[ERROR] FolderReshaper.Reshape: os.Remove %s: %s\n", t.Path, err)
 						}
@@ -84,8 +85,10 @@ func (fr *FolderReshaper) Reshape(folder string, mode string) error {
 					if err == nil {
 						switch mode {
 						case MODE_LINK:
+							log.Printf("[INFO] Link new file %s\n", t.Path)
 							err = os.Link(t.Path, dest)
 						case MODE_RENAME:
+							log.Printf("[INFO] Rename new file %s\n", t.Path)
 							err = os.Rename(t.Path, dest)
 						default:
 							panic(fmt.Sprintf("Unknown mode %s", mode))
