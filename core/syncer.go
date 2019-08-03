@@ -203,11 +203,11 @@ where f.sha1 is not null
   and f.removed_at is null
   and (f.published is true or f.type in ('image', 'text'));`
 	} else {
-		query = `select f.id, f.sha1
+		query = `select id, sha1
 from files
-where f.sha1 is not null
-  and f.removed_at is null
-  and f.published is true;`
+where sha1 is not null
+  and removed_at is null
+  and published is true;`
 	}
 
 	rows, err := db.Query(query)
