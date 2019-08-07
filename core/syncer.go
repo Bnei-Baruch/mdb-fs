@@ -195,7 +195,7 @@ func (s *SyncerImpl) AugmentMDBToIndex(idx map[string]*FileRecord) error {
 
 	var query string
 	if s.Config.MerkazAccess {
-		query = `select f.id, f.sha1
+		query = `select distinct f.id, f.sha1
 from files f
        inner join files_storages fs on f.id = fs.file_id
        inner join storages s on fs.storage_id = s.id and s.location = 'merkaz'
@@ -203,11 +203,12 @@ where f.sha1 is not null
   and f.removed_at is null
   and (f.published is true or f.type in ('image', 'text'));`
 	} else {
-		query = `select id, sha1
-from files
-where sha1 is not null
-  and removed_at is null
-  and published is true;`
+		query = `select distinct f.id, f.sha1
+from files f
+	inner join files_storages fs on f.id = fs.file_id
+where f.sha1 is not null
+  and f.removed_at is null
+  and f.published is true;`
 	}
 
 	rows, err := db.Query(query)
