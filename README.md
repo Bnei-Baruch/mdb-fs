@@ -33,10 +33,9 @@ Print version and exit
 ## Contributing
 
 ```shell
-$ cd $GOPATH/src/github.com/Bnei-Baruch
 $ git clone https://github.com/Bnei-Baruch/mdb-fs.git
 $ cd mdb-fs
-$ dep ensure
+$ make build
 ```
 
 ## License
