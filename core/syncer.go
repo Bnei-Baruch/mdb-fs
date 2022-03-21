@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cavaliercoder/grab"
+	"github.com/cavaliergopher/grab/v3"
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
 

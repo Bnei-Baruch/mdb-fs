@@ -8,7 +8,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/cavaliercoder/grab"
+	"github.com/cavaliergopher/grab/v3"
 	"github.com/pkg/errors"
 
 	"github.com/Bnei-Baruch/mdb-fs/config"
