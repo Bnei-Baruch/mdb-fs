@@ -11,8 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Bnei-Baruch/mdb-fs/config"
 	"github.com/pkg/errors"
+
+	"github.com/Bnei-Baruch/mdb-fs/config"
 )
 
 type FileRecord struct {
@@ -61,10 +62,10 @@ type Sha1FS struct {
 	ScanReapWorkers int
 }
 
-func NewSha1FS(cfg *config.Config) *Sha1FS {
+func NewSha1FS() *Sha1FS {
 	fs := new(Sha1FS)
-	fs.Root = cfg.RootDir
-	fs.ScanReapWorkers = cfg.IndexWorkers
+	fs.Root = config.Config.RootDir
+	fs.ScanReapWorkers = config.Config.IndexWorkers
 	return fs
 }
 

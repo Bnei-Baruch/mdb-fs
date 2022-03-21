@@ -7,13 +7,15 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/subosito/gotenv"
+
 	"github.com/Bnei-Baruch/mdb-fs/config"
 	"github.com/Bnei-Baruch/mdb-fs/core"
 	"github.com/Bnei-Baruch/mdb-fs/importer"
 	"github.com/Bnei-Baruch/mdb-fs/version"
 )
 
-func sync(cfg *config.Config) {
+func sync() {
 	// Initialize shutdown hook
 	sigs := make(chan os.Signal, 1)
 	done := make(chan bool, 1)
@@ -21,8 +23,8 @@ func sync(cfg *config.Config) {
 
 	// Start syncer
 	log.Println("[INFO] Starting FS sync")
-	syncer := core.NewSyncer(cfg)
-	go syncer.DoSync(cfg)
+	syncer := core.NewSyncer()
+	go syncer.DoSync()
 
 	// Blocking wait for signals
 	go func() {
@@ -38,10 +40,10 @@ func sync(cfg *config.Config) {
 	syncer.(core.Closer).Close()
 }
 
-func index(cfg *config.Config) {
+func index() {
 	log.Println("[INFO] Starting FS index")
 
-	fs := core.NewSha1FS(cfg)
+	fs := core.NewSha1FS()
 	if err := fs.ScanReap(); err != nil {
 		log.Fatalf("fs.ScanReap: %s", err.Error())
 	}
@@ -49,10 +51,10 @@ func index(cfg *config.Config) {
 	log.Println("[INFO] FS index complete")
 }
 
-func reshape(cfg *config.Config, folder string, mode string) {
+func reshape(folder string, mode string) {
 	log.Printf("[INFO] Starting folder reshape for %s\n", folder)
 
-	fr := importer.NewFolderReshaper(cfg)
+	fr := importer.NewFolderReshaper()
 	if err := fr.Reshape(folder, mode); err != nil {
 		log.Fatalf("fr.Reshape: %s", err.Error())
 	}
@@ -71,18 +73,16 @@ func main() {
 		return
 	}
 
-	var cfg = new(config.Config)
-	if err := cfg.Load(); err != nil {
-		log.Fatalf("[Error] config error: %s\n", err.Error())
-	}
+	gotenv.Load()
+	config.Init()
 
 	switch cmd {
 	case "index":
-		index(cfg)
+		index()
 	case "sync":
-		sync(cfg)
+		sync()
 	case "reshape":
-		reshape(cfg, os.Args[2], os.Args[3])
+		reshape(os.Args[2], os.Args[3])
 	default:
 		log.Printf("[ERROR] Unknown command: %s\n", cmd)
 	}

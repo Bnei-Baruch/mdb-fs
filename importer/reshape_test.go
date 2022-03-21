@@ -22,27 +22,25 @@ func TestFolderReshaper_ReshapeRename(t *testing.T) {
 	a := assert.New(t)
 	r := require.New(t)
 
-	cfg := NewTestConfig()
-	defer CleanupConfig(cfg)
-	fmt.Printf("Config: %v\n", cfg)
+	NewTestConfig()
+	defer CleanupConfig()
 
-	testData, err := prepareTestData(cfg)
+	testData, err := prepareTestData()
 	defer testData.Cleanup()
 	r.Nil(err)
 
 	folderReshaper := &FolderReshaper{
-		cfg: cfg,
-		syncer: NewMockSyncer(cfg, testData),
+		syncer: NewMockSyncer(testData),
 	}
 
-	err = folderReshaper.Reshape(testData.srcDir, MODE_RENAME)
+	err = folderReshaper.Reshape(testData.srcDir, ModeRename)
 	r.Nil(err)
 
 	err = folderReshaper.syncer.GetFS().ScanReap()
 	r.Nil(err)
 	idx, err := folderReshaper.syncer.GetFS().ReadIndex()
 	r.Nil(err)
-	for k,v := range testData.files {
+	for k, v := range testData.files {
 		_, ok := idx[k]
 		a.Equal(v.MdbID > 0 && !v.LocalCopy, ok, "in index: %s", k)
 
@@ -55,27 +53,25 @@ func TestFolderReshaper_ReshapeLink(t *testing.T) {
 	a := assert.New(t)
 	r := require.New(t)
 
-	cfg := NewTestConfig()
-	defer CleanupConfig(cfg)
-	fmt.Printf("Config: %v\n", cfg)
+	NewTestConfig()
+	defer CleanupConfig()
 
-	testData, err := prepareTestData(cfg)
+	testData, err := prepareTestData()
 	defer testData.Cleanup()
 	r.Nil(err)
 
 	folderReshaper := &FolderReshaper{
-		cfg: cfg,
-		syncer: NewMockSyncer(cfg, testData),
+		syncer: NewMockSyncer(testData),
 	}
 
-	err = folderReshaper.Reshape(testData.srcDir, MODE_LINK)
+	err = folderReshaper.Reshape(testData.srcDir, ModeLink)
 	r.Nil(err)
 
 	err = folderReshaper.syncer.GetFS().ScanReap()
 	r.Nil(err)
 	idx, err := folderReshaper.syncer.GetFS().ReadIndex()
 	r.Nil(err)
-	for k,v := range testData.files {
+	for k, v := range testData.files {
 		_, ok := idx[k]
 		a.Equal(v.MdbID > 0 && !v.LocalCopy, ok, "in index: %s", k)
 
@@ -95,7 +91,7 @@ type TestData struct {
 	files  map[string]*TestFile
 }
 
-func prepareTestData(cfg *config.Config) (*TestData, error) {
+func prepareTestData() (*TestData, error) {
 	var err error
 	data := &TestData{
 		files: make(map[string]*TestFile),
@@ -136,7 +132,7 @@ func prepareTestData(cfg *config.Config) (*TestData, error) {
 		}
 	}
 
-	fs := core.NewSha1FS(cfg)
+	fs := core.NewSha1FS()
 	err = fs.WriteIndex(idx)
 	if err != nil {
 		return nil, errors.WithMessage(err, "fs.WriteIndex")
@@ -184,26 +180,25 @@ func (d *TestData) Cleanup() error {
 	return os.RemoveAll(d.srcDir)
 }
 
-func NewTestConfig() *config.Config {
+func NewTestConfig() {
 	rootDir, err := ioutil.TempDir("", "root_dir")
 	if err != nil {
 		panic(err)
 	}
 	fmt.Printf("Root directory: %s\n", rootDir)
 
-	return &config.Config{
-		RootDir:            rootDir,
-		MdbUrl:             "",
-		Origins:            []string{},
-		Fetchers:           1,
-		IndexWorkers:       1,
-		SyncUpdateInterval: time.Hour,
-		SuitcaseID:         "test",
-	}
+	config.Init()
+	config.Config.RootDir = rootDir
+	config.Config.MDBUrl = ""
+	config.Config.Origins = []string{}
+	config.Config.Fetchers = 1
+	config.Config.IndexWorkers = 1
+	config.Config.SyncUpdateInterval = time.Hour
+	config.Config.SuitcaseID = "test"
 }
 
-func CleanupConfig(cfg *config.Config) error {
-	return os.RemoveAll(cfg.RootDir)
+func CleanupConfig() error {
+	return os.RemoveAll(config.Config.RootDir)
 }
 
 type MockSyncer struct {
@@ -211,21 +206,20 @@ type MockSyncer struct {
 	testData *TestData
 }
 
-func NewMockSyncer(cfg *config.Config, testData *TestData) *MockSyncer {
+func NewMockSyncer(testData *TestData) *MockSyncer {
 	return &MockSyncer{
 		SyncerImpl: &core.SyncerImpl{
-			Config: cfg,
-			FS:     core.NewSha1FS(cfg),
+			FS: core.NewSha1FS(),
 		},
 		testData: testData,
 	}
 }
 
 func (s *MockSyncer) AugmentMDBToIndex(idx map[string]*core.FileRecord) error {
-	for k,v := range s.testData.files {
+	for k, v := range s.testData.files {
 		if r, ok := idx[k]; ok {
 			r.MdbID = v.MdbID
-		} else if v.MdbID > 0{
+		} else if v.MdbID > 0 {
 			idx[k] = &v.FileRecord
 		}
 	}
