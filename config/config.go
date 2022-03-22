@@ -43,7 +43,7 @@ func Init() {
 	if val := os.Getenv("MDB_URL"); val != "" {
 		Config.MDBUrl = val
 	}
-	if val := os.Getenv("Origins"); val != "" {
+	if val := os.Getenv("ORIGINS"); val != "" {
 		Config.Origins = strings.Split(val, ",")
 	}
 	if val := os.Getenv("MERKAZ_ACCESS"); val != "" {
