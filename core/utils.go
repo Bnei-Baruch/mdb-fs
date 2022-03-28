@@ -3,6 +3,7 @@ package core
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -40,4 +41,18 @@ func Mkdirp(path string) error {
 		return errors.New("destination path is not a directory")
 	}
 	return nil
+}
+
+// HumanizeBytes format the given number of bytes for easier human reading in SI units.
+func HumanizeBytes(b int64) string {
+	const unit = 1000
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "kMGTPE"[exp])
 }

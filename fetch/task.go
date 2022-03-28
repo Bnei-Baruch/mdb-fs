@@ -11,7 +11,7 @@ import (
 	"github.com/cavaliergopher/grab/v3"
 	"github.com/pkg/errors"
 
-	"github.com/Bnei-Baruch/mdb-fs/config"
+	"github.com/Bnei-Baruch/mdb-fs/common"
 )
 
 type Task interface {
@@ -104,10 +104,10 @@ type TaskFactory struct {
 func NewTaskFactory() *TaskFactory {
 	f := new(TaskFactory)
 
-	ua := fmt.Sprintf("mdb-fs [%s]", config.Config.SuitcaseID)
+	ua := fmt.Sprintf("mdb-fs [%s]", common.Config.SuitcaseID)
 
 	f.origins = make([]*FilerBackend, 0)
-	for _, origin := range config.Config.Origins {
+	for _, origin := range common.Config.Origins {
 		f.origins = append(f.origins, NewFilerBackend(origin, ua))
 	}
 

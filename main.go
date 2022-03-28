@@ -9,7 +9,7 @@ import (
 
 	"github.com/subosito/gotenv"
 
-	"github.com/Bnei-Baruch/mdb-fs/config"
+	"github.com/Bnei-Baruch/mdb-fs/common"
 	"github.com/Bnei-Baruch/mdb-fs/core"
 	"github.com/Bnei-Baruch/mdb-fs/importer"
 	"github.com/Bnei-Baruch/mdb-fs/version"
@@ -74,7 +74,7 @@ func main() {
 	}
 
 	gotenv.Load()
-	config.Init()
+	common.Init()
 
 	switch cmd {
 	case "index":

@@ -3,7 +3,6 @@
 
 *.swp
 *.log
-.env
 
 mdb-fs
 root_storage

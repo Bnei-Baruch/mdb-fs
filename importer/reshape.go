@@ -9,7 +9,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/Bnei-Baruch/mdb-fs/config"
+	"github.com/Bnei-Baruch/mdb-fs/common"
 	"github.com/Bnei-Baruch/mdb-fs/core"
 )
 
@@ -111,7 +111,7 @@ func (fr *FolderReshaper) Reshape(folder string, mode string) error {
 	wgCollector.Add(1)
 
 	// ChecksumTask workers
-	for i := 0; i < config.Config.IndexWorkers; i++ {
+	for i := 0; i < common.Config.IndexWorkers; i++ {
 		go func(id int, c chan *core.ChecksumTask, r chan<- *core.ChecksumTask) {
 			for t := range c {
 				t.Checksum, t.Err = core.Sha1Sum(t.Path)

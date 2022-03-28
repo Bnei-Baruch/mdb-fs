@@ -13,12 +13,13 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/Bnei-Baruch/mdb-fs/config"
+	"github.com/Bnei-Baruch/mdb-fs/common"
 )
 
 type FileRecord struct {
 	Sha1      string
 	MdbID     int64
+	MdbSize   int64
 	Size      int64
 	ModTime   time.Time
 	LocalCopy bool
@@ -64,8 +65,8 @@ type Sha1FS struct {
 
 func NewSha1FS() *Sha1FS {
 	fs := new(Sha1FS)
-	fs.Root = config.Config.RootDir
-	fs.ScanReapWorkers = config.Config.IndexWorkers
+	fs.Root = common.Config.RootDir
+	fs.ScanReapWorkers = common.Config.IndexWorkers
 	return fs
 }
 
@@ -162,10 +163,18 @@ func (fs *Sha1FS) ScanReap() error {
 	updated := 0
 	removed := 0
 	ghosts := 0
+	taskCount := 0
+	completed := 0
 
 	// ChecksumTask results collector
+	log.Println("Sha1FS.ScanReap: go results collector")
 	go func(c chan *ChecksumTask) {
 		for t := range c {
+			completed++
+			if completed%1000 == 0 {
+				log.Printf("Sha1FS.ScanReap: completed %d out of %d \n", completed, taskCount)
+			}
+
 			if t.Err != nil {
 				log.Printf("[ERROR] Sha1FS.ScanReap: compute file checksum %s: %s\n", t.Path, t.Err.Error())
 				continue
@@ -206,6 +215,7 @@ func (fs *Sha1FS) ScanReap() error {
 	wgCollector.Add(1)
 
 	// ChecksumTask workers
+	log.Printf("Sha1FS.ScanReap: go %d checksum workers\n", fs.ScanReapWorkers)
 	for i := 0; i < fs.ScanReapWorkers; i++ {
 		go func(id int, c chan *ChecksumTask, r chan<- *ChecksumTask) {
 			for t := range c {
@@ -219,6 +229,7 @@ func (fs *Sha1FS) ScanReap() error {
 
 	// walk all files
 	// create and enqueue tasks when necessary
+	log.Println("Sha1FS.ScanReap: walk root dir")
 	err = filepath.Walk(fs.Root, func(path string, info os.FileInfo, err error) error {
 		// skip directories and our own index file
 		if info.IsDir() || info.Name() == "index" {
@@ -247,12 +258,17 @@ func (fs *Sha1FS) ScanReap() error {
 			}
 		}
 
+		taskCount++
+		if taskCount%1000 == 0 {
+			log.Printf("Sha1FS.ScanReap: found %d tasks so far\n", taskCount)
+		}
+
 		csTasks <- csTask
 
 		return nil
 	})
 
-	log.Println("Sha1FS.ScanReap: done walking FS, closing tasks channel")
+	log.Printf("Sha1FS.ScanReap: done walking FS, closing tasks channel. %d total tasks\n", taskCount)
 	close(csTasks)
 
 	log.Println("Sha1FS.ScanReap: waiting for workers to finish")

@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  mdb:
+    image: postgres:9
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_USER: user
+      POSTGRES_DB: mdb
+    ports:
+      - 5434:5432
