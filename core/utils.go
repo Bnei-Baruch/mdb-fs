@@ -26,7 +26,7 @@ func Sha1Sum(path string) (string, error) {
 	return hex.EncodeToString(hashInBytes), nil
 }
 
-// mkdirp creates all missing parent directories for the destination file path.
+// Mkdirp creates all missing parent directories for the destination file path.
 func Mkdirp(path string) error {
 	dir := filepath.Dir(path)
 	if fi, err := os.Stat(dir); err != nil {

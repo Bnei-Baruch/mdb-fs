@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cavaliercoder/grab"
+	"github.com/cavaliergopher/grab/v3"
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
 
@@ -18,12 +18,11 @@ import (
 
 type Syncer interface {
 	GetFS() *Sha1FS
-	DoSync(cfg *config.Config)
+	DoSync()
 	AugmentMDBToIndex(idx map[string]*FileRecord) error
 }
 
 type SyncerImpl struct {
-	Config      *config.Config
 	FS          *Sha1FS
 	quit        chan bool
 	queue       *fetch.TaskQueue
@@ -33,19 +32,18 @@ type SyncerImpl struct {
 	wErrs       sync.Map
 }
 
-func NewSyncer(cfg *config.Config) Syncer {
+func NewSyncer() Syncer {
 	return &SyncerImpl{
-		Config: cfg,
-		FS:     NewSha1FS(cfg),
-		quit:   make(chan bool),
+		FS:   NewSha1FS(),
+		quit: make(chan bool),
 	}
 }
 
-func (s *SyncerImpl) DoSync(cfg *config.Config) {
+func (s *SyncerImpl) DoSync() {
 	// initialize
-	ticker := time.NewTicker(cfg.SyncUpdateInterval)
-	s.taskFactory = fetch.NewTaskFactory(cfg)
-	s.queue = fetch.NewTaskQueue(cfg)
+	ticker := time.NewTicker(config.Config.SyncUpdateInterval)
+	s.taskFactory = fetch.NewTaskFactory()
+	s.queue = fetch.NewTaskQueue(config.Config.Fetchers)
 	s.queue.AddListener(s)
 
 	// first time reload
@@ -187,14 +185,14 @@ func (s *SyncerImpl) reload() error {
 }
 
 func (s *SyncerImpl) AugmentMDBToIndex(idx map[string]*FileRecord) error {
-	db, err := sql.Open("postgres", s.Config.MdbUrl)
+	db, err := sql.Open("postgres", config.Config.MDBUrl)
 	if err != nil {
 		return errors.Wrap(err, "sql.Open")
 	}
 	defer db.Close()
 
 	var query string
-	if s.Config.MerkazAccess {
+	if config.Config.MerkazAccess {
 		query = `select distinct f.id, f.sha1
 from files f
        inner join files_storages fs on f.id = fs.file_id

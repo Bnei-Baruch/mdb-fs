@@ -8,7 +8,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/cavaliercoder/grab"
+	"github.com/cavaliergopher/grab/v3"
 	"github.com/pkg/errors"
 
 	"github.com/Bnei-Baruch/mdb-fs/config"
@@ -97,20 +97,18 @@ func (t *FetchTask) doGrab(ctx context.Context, dst string, url string) (*grab.R
 }
 
 type TaskFactory struct {
-	cfg     *config.Config
 	origins []*FilerBackend
 	grabber *grab.Client
 }
 
-func NewTaskFactory(cfg *config.Config) *TaskFactory {
+func NewTaskFactory() *TaskFactory {
 	f := new(TaskFactory)
-	f.cfg = cfg
 
-	ua := fmt.Sprintf("mdb-fs [%s]", cfg.SuitcaseID)
+	ua := fmt.Sprintf("mdb-fs [%s]", config.Config.SuitcaseID)
 
-	f.origins = make([]*FilerBackend, len(cfg.Origins))
-	for i := range cfg.Origins {
-		f.origins[i] = NewFilerBackend(cfg.Origins[i], ua)
+	f.origins = make([]*FilerBackend, 0)
+	for _, origin := range config.Config.Origins {
+		f.origins = append(f.origins, NewFilerBackend(origin, ua))
 	}
 
 	f.grabber = grab.NewClient()

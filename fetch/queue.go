@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
-	"github.com/Bnei-Baruch/mdb-fs/config"
 )
 
 type TaskListener interface {
@@ -24,14 +22,14 @@ type TaskQueue struct {
 	listeners []TaskListener
 }
 
-func NewTaskQueue(cfg *config.Config) *TaskQueue {
+func NewTaskQueue(workers int) *TaskQueue {
 	q := new(TaskQueue)
 	q.jobs = make(chan Task)
 
 	var ctx context.Context
 	ctx, q.cancel = context.WithCancel(context.Background())
 
-	for i := 0; i < cfg.Fetchers; i++ {
+	for i := 0; i < workers; i++ {
 		// Start worker here.
 		go func(id int) {
 			wCtx := context.WithValue(ctx, "WORKER_ID", id)

@@ -14,25 +14,23 @@ import (
 )
 
 const (
-	MODE_RENAME = "rename"
-	MODE_LINK   = "link"
+	ModeRename = "rename"
+	ModeLink   = "link"
 )
 
 type FolderReshaper struct {
-	cfg    *config.Config
 	syncer core.Syncer
 	quit   chan bool
 }
 
-func NewFolderReshaper(cfg *config.Config) *FolderReshaper {
+func NewFolderReshaper() *FolderReshaper {
 	return &FolderReshaper{
-		cfg:    cfg,
 		quit:   make(chan bool),
-		syncer: core.NewSyncer(cfg),
+		syncer: core.NewSyncer(),
 	}
 }
 
-// We want to move any folder structure to our own Sha1FS.
+// Reshape any folder structure to our own Sha1FS.
 // This is intended to be some form of an import operation.
 // We move (rename) files from some source folder to our own data folder.
 // Iff the file is known to mdb
@@ -73,7 +71,7 @@ func (fr *FolderReshaper) Reshape(folder string, mode string) error {
 			if r, ok := idx[t.Checksum]; ok {
 				if r.LocalCopy {
 					exist++
-					if mode == MODE_RENAME {
+					if mode == ModeRename {
 						log.Printf("[INFO] Remove existing file %s\n", t.Path)
 						if err := os.Remove(t.Path); err != nil {
 							log.Printf("[ERROR] FolderReshaper.Reshape: os.Remove %s: %s\n", t.Path, err)
@@ -84,10 +82,10 @@ func (fr *FolderReshaper) Reshape(folder string, mode string) error {
 					err := core.Mkdirp(dest)
 					if err == nil {
 						switch mode {
-						case MODE_LINK:
+						case ModeLink:
 							log.Printf("[INFO] Link new file %s\n", t.Path)
 							err = os.Link(t.Path, dest)
-						case MODE_RENAME:
+						case ModeRename:
 							log.Printf("[INFO] Rename new file %s\n", t.Path)
 							err = os.Rename(t.Path, dest)
 						default:
@@ -113,7 +111,7 @@ func (fr *FolderReshaper) Reshape(folder string, mode string) error {
 	wgCollector.Add(1)
 
 	// ChecksumTask workers
-	for i := 0; i < fr.cfg.IndexWorkers; i++ {
+	for i := 0; i < config.Config.IndexWorkers; i++ {
 		go func(id int, c chan *core.ChecksumTask, r chan<- *core.ChecksumTask) {
 			for t := range c {
 				t.Checksum, t.Err = core.Sha1Sum(t.Path)

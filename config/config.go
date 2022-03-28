@@ -1,15 +1,16 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"time"
-
-	"github.com/pelletier/go-toml"
-	"github.com/pkg/errors"
 )
 
-type Config struct {
+type config struct {
 	RootDir            string
-	MdbUrl             string
+	MDBUrl             string
 	Origins            []string
 	MerkazAccess       bool
 	Fetchers           int
@@ -18,31 +19,61 @@ type Config struct {
 	SuitcaseID         string
 }
 
-func (c *Config) Load() error {
-	config, err := toml.LoadFile("config.toml")
-	if err != nil {
-		return errors.Wrap(err, "Load config file")
+func newConfig() *config {
+	return &config{
+		RootDir:            "",
+		MDBUrl:             "postgres://user:password@localhost/mdb?sslmode=disable",
+		Origins:            []string{},
+		MerkazAccess:       false,
+		Fetchers:           1,
+		IndexWorkers:       1,
+		SyncUpdateInterval: 60 * time.Second,
+		SuitcaseID:         "",
 	}
+}
 
-	c.RootDir = config.Get("root").(string)
-	c.MdbUrl = config.Get("mdb").(string)
+var Config *config
 
-	o := config.Get("origins").([]interface{})
-	c.Origins = make([]string, len(o))
-	for i := range o {
-		c.Origins[i] = o[i].(string)
+func Init() {
+	Config = newConfig()
+
+	if val := os.Getenv("ROOT_DIR"); val != "" {
+		Config.RootDir = val
 	}
-
-	c.MerkazAccess = config.GetDefault("merkaz-access", false).(bool)
-	c.Fetchers = int(config.GetDefault("fetchers", 1).(int64))
-	c.IndexWorkers = int(config.GetDefault("index-workers", 1).(int64))
-
-	c.SyncUpdateInterval, err = time.ParseDuration(config.Get("sync-update-interval").(string))
-	if err != nil {
-		return errors.Wrapf(err, "sync-update-interval: %s\n", err.Error())
+	if val := os.Getenv("MDB_URL"); val != "" {
+		Config.MDBUrl = val
 	}
-
-	c.SuitcaseID = config.Get("suitcase-id").(string)
-
-	return nil
+	if val := os.Getenv("ORIGINS"); val != "" {
+		Config.Origins = strings.Split(val, ",")
+	}
+	if val := os.Getenv("MERKAZ_ACCESS"); val != "" {
+		Config.MerkazAccess = val == "true"
+	}
+	if val := os.Getenv("FETCHERS"); val != "" {
+		pVal, err := strconv.Atoi(val)
+		if err != nil {
+			panic(err)
+		}
+		Config.Fetchers = pVal
+	}
+	if val := os.Getenv("INDEX_WORKERS"); val != "" {
+		pVal, err := strconv.Atoi(val)
+		if err != nil {
+			panic(err)
+		}
+		Config.IndexWorkers = pVal
+	}
+	if val := os.Getenv("SYNC_UPDATE_INTERVAL"); val != "" {
+		pVal, err := time.ParseDuration(val)
+		if err != nil {
+			panic(err)
+		}
+		if pVal <= 0 {
+			panic(fmt.Errorf("SYNC_UPDATE_INTERVAL must be positive, got %d", pVal))
+		}
+		Config.SyncUpdateInterval = pVal
+	}
+	if val := os.Getenv("SUITCASE_ID"); val != "" {
+		Config.SuitcaseID = val
+	}
 }
