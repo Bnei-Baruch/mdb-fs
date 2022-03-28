@@ -2,7 +2,6 @@ package core
 
 import (
 	"database/sql"
-	"encoding/hex"
 	"log"
 	"net/url"
 	"sync"
@@ -12,7 +11,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
 
-	"github.com/Bnei-Baruch/mdb-fs/config"
+	"github.com/Bnei-Baruch/mdb-fs/common"
 	"github.com/Bnei-Baruch/mdb-fs/fetch"
 )
 
@@ -41,9 +40,9 @@ func NewSyncer() Syncer {
 
 func (s *SyncerImpl) DoSync() {
 	// initialize
-	ticker := time.NewTicker(config.Config.SyncUpdateInterval)
+	ticker := time.NewTicker(common.Config.SyncUpdateInterval)
 	s.taskFactory = fetch.NewTaskFactory()
-	s.queue = fetch.NewTaskQueue(config.Config.Fetchers)
+	s.queue = fetch.NewTaskQueue(common.Config.Fetchers)
 	s.queue.AddListener(s)
 
 	// first time reload
@@ -168,13 +167,15 @@ func (s *SyncerImpl) reload() error {
 
 	// determine files to fetch
 	files := make([]*FileRecord, 0)
+	var bytesToFetch int64
 	for _, v := range idx {
 		if v.MdbID > 0 && !v.LocalCopy {
 			files = append(files, v)
+			bytesToFetch += v.MdbSize
 		}
 	}
 
-	log.Printf("[INFO] %d files to fetch\n", len(files))
+	log.Printf("[INFO] %d files to fetch, %s.\n", len(files), HumanizeBytes(bytesToFetch))
 	s.files = files
 	s.pos = 0
 
@@ -185,59 +186,29 @@ func (s *SyncerImpl) reload() error {
 }
 
 func (s *SyncerImpl) AugmentMDBToIndex(idx map[string]*FileRecord) error {
-	db, err := sql.Open("postgres", config.Config.MDBUrl)
+	db, err := sql.Open("postgres", common.Config.MDBUrl)
 	if err != nil {
 		return errors.Wrap(err, "sql.Open")
 	}
 	defer db.Close()
 
-	var query string
-	if config.Config.MerkazAccess {
-		query = `select distinct f.id, f.sha1
-from files f
-       inner join files_storages fs on f.id = fs.file_id
-       inner join storages s on fs.storage_id = s.id and s.location = 'merkaz'
-where f.sha1 is not null
-  and f.removed_at is null
-  and (f.published is true or f.type in ('image', 'text'));`
-	} else {
-		query = `select distinct f.id, f.sha1
-from files f
-	inner join files_storages fs on f.id = fs.file_id
-where f.sha1 is not null
-  and f.removed_at is null
-  and f.published is true;`
-	}
-
-	rows, err := db.Query(query)
+	strategy, err := MakeMDBStrategy(common.Config.MDBStrategy, common.Config.MDBStrategyParams)
 	if err != nil {
-		return errors.Wrap(err, "db.Query")
+		log.Fatalf("MakeMDBStrategy: %s", err.Error())
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var id int64
-		var b []byte
-		err = rows.Scan(&id, &b)
-		if err != nil {
-			return errors.Wrap(err, "rows.Scan")
-		}
+	if err = strategy.Augment(db, idx); err != nil {
+		return errors.Wrap(err, "strategy.Augment")
+	}
 
-		sha1 := hex.EncodeToString(b)
-		if r, ok := idx[sha1]; ok {
-			r.MdbID = id
-		} else {
-			idx[sha1] = &FileRecord{
-				Sha1:      sha1,
-				MdbID:     id,
-				LocalCopy: false,
-			}
+	var fCount, bCount int64
+	for _, v := range idx {
+		if v.MdbID > 0 {
+			fCount++
+			bCount += v.MdbSize
 		}
 	}
-
-	if err := rows.Err(); err != nil {
-		return errors.Wrap(err, "rows.Err()")
-	}
+	log.Printf("[INFO] MDB strategy has %d files, %s.\n", fCount, HumanizeBytes(bCount))
 
 	return nil
 }

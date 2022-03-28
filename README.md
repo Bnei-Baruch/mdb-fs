@@ -38,6 +38,15 @@ $ cd mdb-fs
 $ make build
 ```
 
+To work with a local mdb copy
+
+```shell
+docker-compose up -d
+wget https://kabbalahmedia.info/assets/mdb_dump.sql.gz
+gunzip mdb_dump.sql.gz
+psql -h localhost -U user -d mdb -p 5434 < mdb_dump.sql
+```
+
 ## License
 
 MIT

@@ -1,4 +1,4 @@
-package config
+package common
 
 import (
 	"fmt"
@@ -12,7 +12,8 @@ type config struct {
 	RootDir            string
 	MDBUrl             string
 	Origins            []string
-	MerkazAccess       bool
+	MDBStrategy        string
+	MDBStrategyParams  string
 	Fetchers           int
 	IndexWorkers       int
 	SyncUpdateInterval time.Duration
@@ -24,7 +25,8 @@ func newConfig() *config {
 		RootDir:            "",
 		MDBUrl:             "postgres://user:password@localhost/mdb?sslmode=disable",
 		Origins:            []string{},
-		MerkazAccess:       false,
+		MDBStrategy:        "",
+		MDBStrategyParams:  "",
 		Fetchers:           1,
 		IndexWorkers:       1,
 		SyncUpdateInterval: 60 * time.Second,
@@ -46,8 +48,11 @@ func Init() {
 	if val := os.Getenv("ORIGINS"); val != "" {
 		Config.Origins = strings.Split(val, ",")
 	}
-	if val := os.Getenv("MERKAZ_ACCESS"); val != "" {
-		Config.MerkazAccess = val == "true"
+	if val := os.Getenv("MDB_STRATEGY"); val != "" {
+		Config.MDBStrategy = val
+	}
+	if val := os.Getenv("MDB_STRATEGY_PARAMS"); val != "" {
+		Config.MDBStrategyParams = val
 	}
 	if val := os.Getenv("FETCHERS"); val != "" {
 		pVal, err := strconv.Atoi(val)

@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Bnei-Baruch/mdb-fs/config"
+	"github.com/Bnei-Baruch/mdb-fs/common"
 	"github.com/Bnei-Baruch/mdb-fs/core"
 )
 
@@ -187,18 +187,18 @@ func NewTestConfig() {
 	}
 	fmt.Printf("Root directory: %s\n", rootDir)
 
-	config.Init()
-	config.Config.RootDir = rootDir
-	config.Config.MDBUrl = ""
-	config.Config.Origins = []string{}
-	config.Config.Fetchers = 1
-	config.Config.IndexWorkers = 1
-	config.Config.SyncUpdateInterval = time.Hour
-	config.Config.SuitcaseID = "test"
+	common.Init()
+	common.Config.RootDir = rootDir
+	common.Config.MDBUrl = ""
+	common.Config.Origins = []string{}
+	common.Config.Fetchers = 1
+	common.Config.IndexWorkers = 1
+	common.Config.SyncUpdateInterval = time.Hour
+	common.Config.SuitcaseID = "test"
 }
 
 func CleanupConfig() error {
-	return os.RemoveAll(config.Config.RootDir)
+	return os.RemoveAll(common.Config.RootDir)
 }
 
 type MockSyncer struct {
