@@ -14,6 +14,11 @@ Start the sync daemon
 **index**
 
 Heavy operation to ensure our SHA-1 FS is consistent with itself.  
+Better execute it in background.
+```shell
+cd /sites/mdb-fs
+nohup ./mdb-fs index > index.log & 2>&1
+```
 
 **reshape** _folder_ _mode_
 

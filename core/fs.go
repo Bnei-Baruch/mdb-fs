@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -130,15 +131,6 @@ func (fs *Sha1FS) WriteIndex(idx map[string]*FileRecord) error {
 	return nil
 }
 
-type ChecksumTask struct {
-	Path     string
-	Checksum string
-	Err      error
-	FName    string
-	FSize    int64
-	FModTime int64
-}
-
 func (fs *Sha1FS) ScanReap() error {
 	// read current index
 	idx, err := fs.ReadIndex()
@@ -150,6 +142,13 @@ func (fs *Sha1FS) ScanReap() error {
 	for _, v := range idx {
 		v.LocalCopy = false
 	}
+
+	// load previous partial results
+	completedTasks := NewCompletedChecksumTasks(fs.Root)
+	if err := completedTasks.load(); err != nil {
+		return errors.Wrap(err, "completedTasks.load")
+	}
+	completedTasks.augmentIndex(idx)
 
 	csTasks := make(chan *ChecksumTask, 1024)
 	csResults := make(chan *ChecksumTask)
@@ -165,6 +164,7 @@ func (fs *Sha1FS) ScanReap() error {
 	ghosts := 0
 	taskCount := 0
 	completed := 0
+	skipped := 0
 
 	// ChecksumTask results collector
 	log.Println("Sha1FS.ScanReap: go results collector")
@@ -173,6 +173,8 @@ func (fs *Sha1FS) ScanReap() error {
 			completed++
 			if completed%1000 == 0 {
 				log.Printf("Sha1FS.ScanReap: completed %d out of %d \n", completed, taskCount)
+				log.Printf("Sha1FS.ScanReap: %d no change, %d skipped, %d added, %d updated, %d removed\n",
+					noChange, skipped, added, updated, removed)
 			}
 
 			if t.Err != nil {
@@ -182,14 +184,15 @@ func (fs *Sha1FS) ScanReap() error {
 
 			idxLock.Lock()
 
-			// if computed checksum matches the file name we update the index
-			// else we drop it
-
+			// if computed checksum matches the file name we update the index else we drop it
 			if t.FName == t.Checksum {
 				if r, ok := idx[t.FName]; ok {
 					r.Size = t.FSize
 					r.ModTime = time.Unix(t.FModTime, 0)
 					updated++
+					if err := completedTasks.add(t); err != nil {
+						log.Printf("[ERROR] Sha1FS.ScanReap: add completed task %s: %s\n", t.Path, err.Error())
+					}
 				} else {
 					idx[t.Checksum] = &FileRecord{
 						Sha1:      t.Checksum,
@@ -198,6 +201,9 @@ func (fs *Sha1FS) ScanReap() error {
 						LocalCopy: true,
 					}
 					added++
+					if err := completedTasks.add(t); err != nil {
+						log.Printf("[ERROR] Sha1FS.ScanReap: add completed task %s: %s\n", t.Path, err.Error())
+					}
 				}
 			} else {
 				delete(idx, t.FName)
@@ -232,7 +238,13 @@ func (fs *Sha1FS) ScanReap() error {
 	log.Println("Sha1FS.ScanReap: walk root dir")
 	err = filepath.Walk(fs.Root, func(path string, info os.FileInfo, err error) error {
 		// skip directories and our own index file
-		if info.IsDir() || info.Name() == "index" {
+		if info.IsDir() || info.Name() == "index" || info.Name() == "completed_checksum_tasks.txt" {
+			return nil
+		}
+
+		// skip completed tasks from previous partial runs
+		if completedTasks.has(path) {
+			skipped++
 			return nil
 		}
 
@@ -260,7 +272,7 @@ func (fs *Sha1FS) ScanReap() error {
 
 		taskCount++
 		if taskCount%1000 == 0 {
-			log.Printf("Sha1FS.ScanReap: found %d tasks so far\n", taskCount)
+			log.Printf("Sha1FS.ScanReap: found %d tasks so far (%d skipped)\n", taskCount, skipped)
 		}
 
 		csTasks <- csTask
@@ -292,12 +304,124 @@ func (fs *Sha1FS) ScanReap() error {
 		}
 	}
 
-	log.Printf("Sha1FS.ScanReap: %d no change, %d added, %d updated, %d removed, %d ghosts\n",
-		noChange, added, updated, removed, ghosts)
+	log.Printf("Sha1FS.ScanReap: %d no change, %d skipped, %d added, %d updated, %d removed, %d ghosts\n",
+		noChange, skipped, added, updated, removed, ghosts)
 
 	// write index to file
 	if err := fs.WriteIndex(idx); err != nil {
 		return errors.Wrap(err, "fs.WriteIndex")
+	}
+
+	// cleanup completed tasks
+	if err := completedTasks.cleanup(); err != nil {
+		return errors.Wrap(err, "completedTasks.cleanup")
+	}
+	return nil
+}
+
+type ChecksumTask struct {
+	Path     string
+	Checksum string
+	Err      error `json:"-"`
+	FName    string
+	FSize    int64
+	FModTime int64
+}
+
+type CompletedChecksumTasks struct {
+	root  string
+	fd    *os.File
+	tasks map[string]*ChecksumTask
+}
+
+func NewCompletedChecksumTasks(root string) *CompletedChecksumTasks {
+	cct := new(CompletedChecksumTasks)
+	cct.root = root
+	cct.tasks = make(map[string]*ChecksumTask)
+	return cct
+}
+
+func (cct *CompletedChecksumTasks) load() error {
+	var err error
+	cct.fd, err = os.OpenFile(filepath.Join(cct.root, "completed_checksum_tasks.txt"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0640)
+	if err != nil {
+		return errors.Wrap(err, "os.OpenFile")
+	}
+
+	i := 0
+	scanner := bufio.NewScanner(cct.fd)
+	for scanner.Scan() {
+		i++
+
+		var t ChecksumTask
+		if err := json.Unmarshal(scanner.Bytes(), &t); err != nil {
+			log.Printf("Sha1FS.CompletedChecksumTasks.load: Bad line %d: %s\n", i, err.Error())
+			continue
+		}
+
+		cct.tasks[t.Path] = &t
+	}
+	if err := scanner.Err(); err != nil {
+		return errors.Wrap(err, "scanner.Err()")
+	}
+
+	log.Printf("Sha1FS.CompletedChecksumTasks.load: %d previously completed tasks\n", len(cct.tasks))
+
+	return nil
+}
+
+func (cct *CompletedChecksumTasks) augmentIndex(idx map[string]*FileRecord) {
+	for _, t := range cct.tasks {
+		if r, ok := idx[t.FName]; ok {
+			r.Size = t.FSize
+			r.ModTime = time.Unix(t.FModTime, 0)
+		} else {
+			idx[t.Checksum] = &FileRecord{
+				Sha1:      t.Checksum,
+				Size:      t.FSize,
+				ModTime:   time.Unix(t.FModTime, 0),
+				LocalCopy: true,
+			}
+		}
+	}
+}
+
+func (cct *CompletedChecksumTasks) Close() error {
+	if cct.fd != nil {
+		return cct.fd.Close()
+	}
+	return nil
+}
+
+func (cct *CompletedChecksumTasks) add(t *ChecksumTask) error {
+	cct.tasks[t.Path] = t
+
+	b, err := json.Marshal(t)
+	if err != nil {
+		return errors.Wrap(err, "json.Marshal")
+	}
+	if _, err = cct.fd.Write(b); err != nil {
+		return errors.Wrap(err, "fd.Write")
+	}
+	if _, err = cct.fd.WriteString("\n"); err != nil {
+		return errors.Wrap(err, "fd.Write new line")
+	}
+
+	return nil
+}
+
+func (cct *CompletedChecksumTasks) has(path string) bool {
+	_, ok := cct.tasks[path]
+	return ok
+}
+
+func (cct *CompletedChecksumTasks) cleanup() error {
+	if err := cct.Close(); err != nil {
+		return errors.Wrap(err, "close")
+	}
+
+	if err := os.Remove(filepath.Join(cct.root, "completed_checksum_tasks.txt")); err != nil && !os.IsNotExist(err) {
+		return errors.Wrap(err, "os.Remove")
 	}
 
 	return nil
