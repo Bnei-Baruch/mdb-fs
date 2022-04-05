@@ -332,6 +332,7 @@ type CompletedChecksumTasks struct {
 	root  string
 	fd    *os.File
 	tasks map[string]*ChecksumTask
+	mtx   sync.RWMutex
 }
 
 func NewCompletedChecksumTasks(root string) *CompletedChecksumTasks {
@@ -342,6 +343,9 @@ func NewCompletedChecksumTasks(root string) *CompletedChecksumTasks {
 }
 
 func (cct *CompletedChecksumTasks) load() error {
+	cct.mtx.Lock()
+	defer cct.mtx.Unlock()
+
 	var err error
 	cct.fd, err = os.OpenFile(filepath.Join(cct.root, "completed_checksum_tasks.txt"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0640)
 	if err != nil {
@@ -371,6 +375,9 @@ func (cct *CompletedChecksumTasks) load() error {
 }
 
 func (cct *CompletedChecksumTasks) augmentIndex(idx map[string]*FileRecord) {
+	cct.mtx.RLock()
+	defer cct.mtx.RUnlock()
+
 	for _, t := range cct.tasks {
 		if r, ok := idx[t.FName]; ok {
 			r.Size = t.FSize
@@ -394,7 +401,9 @@ func (cct *CompletedChecksumTasks) Close() error {
 }
 
 func (cct *CompletedChecksumTasks) add(t *ChecksumTask) error {
+	cct.mtx.Lock()
 	cct.tasks[t.Path] = t
+	cct.mtx.Unlock()
 
 	b, err := json.Marshal(t)
 	if err != nil {
@@ -411,7 +420,9 @@ func (cct *CompletedChecksumTasks) add(t *ChecksumTask) error {
 }
 
 func (cct *CompletedChecksumTasks) has(path string) bool {
+	cct.mtx.RLock()
 	_, ok := cct.tasks[path]
+	cct.mtx.RUnlock()
 	return ok
 }
 
